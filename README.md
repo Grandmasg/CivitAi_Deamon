@@ -1,50 +1,51 @@
+
 # Stable Civitai Download Daemon
 
-Deze applicatie automatiseert downloads en updates van modellen via Civitai, met een FastAPI-backend, dynamische poortselectie en webhook-ondersteuning.
+This application automates downloads and updates of models via Civitai, featuring a FastAPI backend, dynamic port selection, and webhook support.
 
 ## Features
 - FastAPI backend
 - Webhook endpoint
-- Automatische poortselectie
-- Logging en queueing
-- Uit te breiden met CI/CD, Telegram, reverse proxy, etc.
+- Automatic port selection
+- Logging and queueing
+- Easily extendable with CI/CD, Telegram, reverse proxy, etc.
 
-## Installatie
-1. Clone deze repo:
+## Installation
+1. Clone this repo:
    ```bash
    git clone <repo-url>
    cd CivitAI_Deamon
    ```
-2. Installeer Python 3.11+ en uv (indien nodig)
-3. Draai de installatie:
+2. Install Python 3.11+ and uv (if needed)
+3. Run the installer:
    ```bash
    python install.py
    ```
-4. Start de daemon:
+4. Start the daemon:
    ```bash
    python launch.py
    ```
 
-## Bestanden
-- `install.py` — Setup en dependency management
-- `launch.py` — Start backend en webhook server
+## Files
+- `install.py` — Setup and dependency management
+- `launch.py` — Starts backend and webhook server
 - `main.py` — FastAPI app
 - `webhook_server.py` — Webhook endpoint
-- `config.json` — Configuratie (wordt automatisch gevuld)
-- `.gitignore` — Bestanden die niet in git komen
+- `config.json` — Configuration (auto-filled)
+- `.gitignore` — Files excluded from git
 
-## GitHub koppeling
-- Voeg deze map toe aan een nieuwe GitHub-repo
-- Commit en push alleen de relevante bestanden (zie `.gitignore`)
+## GitHub integration
+- Add this folder to a new GitHub repository
+- Commit and push only the relevant files (see `.gitignore`)
 
-## CI/CD (optioneel)
-- Voeg een workflow toe in `.github/workflows/` voor automatische tests/deployment
+## CI/CD (optional)
+- Add a workflow in `.github/workflows/` for automated tests/deployment
 
 ---
 
-Voor vragen of uitbreidingen: zie TODO_backend.md of open een issue.
+For questions or feature requests: see TODO_backend.md or open an issue.
 
-## Licentie
+## License
 
 MIT License
 

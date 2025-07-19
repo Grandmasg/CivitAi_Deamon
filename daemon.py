@@ -100,7 +100,7 @@ class DownloadDaemon(threading.Thread):
                         os.remove(filepath)
                     except Exception:
                         pass
-                # Voeg Civitai API key toe indien aanwezig
+                # Add Civitai API key if present
                 config_path = os.path.join(os.path.dirname(__file__), 'config.json')
                 api_key = None
                 if os.path.exists(config_path):

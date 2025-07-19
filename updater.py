@@ -9,7 +9,7 @@ class ModelUpdater(threading.Thread):
     def __init__(self, manifest_path, interval=86400):
         super().__init__(daemon=True)
         self.manifest_path = manifest_path
-        self.interval = interval  # seconds (default: 1 dag)
+        self.interval = interval  # seconds (default: 1 day)
         self.running = True
         self.logger = get_download_logger()
         self.err_logger = get_error_logger()
@@ -32,15 +32,15 @@ class ModelUpdater(threading.Thread):
                 resp = httpx.get(url, timeout=10)
                 resp.raise_for_status()
                 data = resp.json()
-                # Vergelijk SHA of updatedAt
+                # Compare SHA or updatedAt
                 remote_sha = data.get('sha256')
                 remote_updated = data.get('updatedAt')
                 if remote_sha and remote_sha != entry.get('sha256'):
                     self.logger.info(f"Model {model_id} update detected (SHA mismatch)")
-                    # Hier: voeg aan download queue toe of trigger webhook
+                    # Here: add to download queue or trigger webhook
                 elif remote_updated and remote_updated != entry.get('updatedAt'):
                     self.logger.info(f"Model {model_id} update detected (updatedAt mismatch)")
-                    # Hier: voeg aan download queue toe of trigger webhook
+                    # Here: add to download queue or trigger webhook
             except Exception as e:
                 self.err_logger.error(f"Update check failed for {model_id}: {e}")
 

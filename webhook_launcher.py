@@ -47,8 +47,8 @@ def main():
         print(f"[webhook_launcher.py] Picked free webhook port: {port}")
     else:
         print(f"[webhook_launcher.py] Using configured webhook port: {port_in_url}")
-    # Hier zou je de webhook server kunnen starten op de gekozen poort
-    # Bijvoorbeeld: subprocess.run(f"python webhook_server.py --port {port}", shell=True)
+    # Here you could start the webhook server on the chosen port
+    # For example: subprocess.run(f"python webhook_server.py --port {port}", shell=True)
 
 if __name__ == "__main__":
     main()
