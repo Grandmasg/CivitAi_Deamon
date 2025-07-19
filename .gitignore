@@ -1,0 +1,80 @@
+# Project roadmaps / stappenplannen
+Step-by-step_plan_CivitAI_Deamon.txt
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# VSCode
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Databases
+*.db
+
+# Configs & secrets
+.env
+config.json
+
+# System
+.DS_Store
+Thumbs.db
+
+# Node/npm (voor evt. frontend)
+node_modules/
+
+# Build
+build/
+dist/
+
+# Systemd
+systemd/
+
+# Updater
+updater/
+
+# Static & templates (optioneel, als je deze niet wilt tracken)
+# static/
+# templates/
+
+# Pytest
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Manifest
+manifest.json
+
+# Ignore installer scripts (optioneel)
+# install.py
+# setup.sh
+
+# Ignore backups
+*~
+*.bak
+
+# Ignore coverage
+.coverage
+htmlcov/
+coverage.xml
+
+# Ignore test output
+.testoutput/
+
+# Ignore OS files
+Icon?
+
+# Ignore CI/CD
+.github/
+
+# End of .gitignore
