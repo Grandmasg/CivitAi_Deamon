@@ -48,18 +48,31 @@ def make_queue_item(model_id, url, filename, sha256=None, priority=0, model_type
     }
 
 class DownloadDaemon(threading.Thread):
-    def __init__(self, max_retries=5, download_dir='', throttle=0, timeout=60.0):
+    def __init__(self, max_retries=None, download_dir=None, throttle=None, timeout=None, workers=None):
         super().__init__(daemon=True)
+        # Load config values if not provided
+        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        config = {}
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                try:
+                    config = json.load(f)
+                except Exception:
+                    config = {}
+        # Use config values or fallback to defaults
+        self.max_retries = max_retries if max_retries is not None else int(config.get('retries', 5))
+        self.throttle = throttle if throttle is not None else int(config.get('throttle', 0))
+        self.workers = workers if workers is not None else int(config.get('workers', 1))
+        self.download_dir = download_dir if download_dir is not None else config.get('download_dir', '')
+        self.timeout = timeout if timeout is not None else float(config.get('timeout', 60.0))
         self.queue = queue.PriorityQueue()
-        self.max_retries = max_retries
-        self.download_dir = download_dir
-        self.throttle = throttle  # seconds between downloads
-        self.timeout = timeout    # per download
         self.running = True
         self.paused = False
         self.cancel_current = False
         self.logger = get_download_logger()
         self.err_logger = get_error_logger()
+        # Note: self.workers is not yet used; for future multi-threaded support
+        # TODO: log_level dynamisch uit config halen en logging aanpassen
     def pause(self):
         self.paused = True
         ws_manager.broadcast('daemon_paused', {})

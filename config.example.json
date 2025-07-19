@@ -3,6 +3,8 @@
   "throttle": 2,
   "retries": 3,
   "workers": 2,
+  "timeout": 600,
+  "download_dir": "data/models",
   "active_port": null,
   "civitai_api_key": "<optional: your civitai api key>",
   "jwt_secret": "<your_jwt_secret>",

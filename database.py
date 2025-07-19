@@ -1,3 +1,14 @@
+# --- Duplicate check ---
+def is_already_downloaded(model_id, model_version_id):
+    """
+    Returns True als deze combinatie al als 'success' in downloads staat.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''SELECT 1 FROM downloads WHERE model_id=? AND model_version_id=? AND status='success' LIMIT 1''', (model_id, model_version_id))
+    result = c.fetchone()
+    conn.close()
+    return bool(result)
 import sqlite3
 import os
 from datetime import datetime

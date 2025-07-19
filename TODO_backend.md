@@ -20,7 +20,7 @@
 ────────────────────────────
 🧠 Configuration Files
 ────────────────────────────
-[x] Fill config.json with webhook_url, throttle, retries, workers and active_port (leave active_port empty/null on initialization)
+[x] Fill config.json with webhook_url, throttle, retries, workers, timeout, download_dir, and active_port (leave active_port empty/null on initialization)
 [x] Fill manifest.json with test model data (modelId, sha256, url, filename, priority)
 
 ────────────────────────────
@@ -36,9 +36,9 @@
 ────────────────────────────
 🧱 Build Backend Modules
 ────────────────────────────
-[x] logger.py → Rotating logs
+[x] logger.py → Rotating logs (log_level uit config.json: TODO)
 [x] database.py → Log to SQLite + analysis
-[x] daemon.py → Queue, retry, hash, WebSocket, manifest processing
+[x] daemon.py → Queue, retry, hash, WebSocket, manifest processing (timeout & download_dir uit config.json)
 [x] updater/checker.py → Civitai update checker + scheduler
 [x] main.py → FastAPI app + routers + startup event
 

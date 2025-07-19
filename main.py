@@ -140,6 +140,9 @@ async def api_download(request: Request, user: str = Depends(get_current_user)):
     required_fields = ["model_id", "url", "filename", "model_type", "model_version_id"]
     if not all(f in data and data[f] for f in required_fields):
         raise HTTPException(status_code=422, detail="Missing required fields: model_id, url, filename, model_type, model_version_id")
+    from database import is_already_downloaded
+    if is_already_downloaded(data.get('model_id'), data.get('model_version_id')):
+        return {"status": "already downloaded"}
     item = make_queue_item(
         model_id=data.get('model_id'),
         url=data.get('url'),
@@ -159,11 +162,16 @@ async def api_batch(request: Request, user: str = Depends(get_current_user)):
     manifest = data.get('manifest', [])
     if not isinstance(manifest, list):
         raise HTTPException(status_code=422, detail="Manifest must be a list of jobs")
+    from database import is_already_downloaded
     count = 0
+    skipped = 0
     for entry in manifest:
         if not isinstance(entry, dict):
             continue
         if not all(f in entry and entry[f] for f in ["model_id", "url", "filename", "model_type", "model_version_id"]):
+            continue
+        if is_already_downloaded(entry.get('model_id'), entry.get('model_version_id')):
+            skipped += 1
             continue
         item = make_queue_item(
             model_id=entry.get('model_id'),
@@ -176,7 +184,7 @@ async def api_batch(request: Request, user: str = Depends(get_current_user)):
         )
         daemon_instance.add_job(item)
         count += 1
-    return {"status": "batch_queued", "count": count}
+    return {"status": "batch_queued", "queued": count, "skipped": skipped}
 
 
 @app.get("/api/status")
