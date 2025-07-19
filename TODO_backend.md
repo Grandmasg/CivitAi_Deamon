@@ -45,55 +45,69 @@
 ────────────────────────────
 📡 API & GUI
 ────────────────────────────
-[ ] WebSocket endpoint: /ws/downloads
-[ ] REST API endpoints: /api/download, /api/batch, /api/status, /api/completed, /api/metrics
-[ ] GUI endpoint: /gui
-[ ] templates/gui.html → Bootstrap interface
-[ ] static/client.js → frontend WebSocket client module
+[x] WebSocket endpoint: /ws/downloads
+[x] REST API endpoints: /api/download, /api/batch, /api/status, /api/completed, /api/metrics
+[x] GUI endpoint: /gui
+[x] templates/gui.html → Bootstrap interface
+[x] static/client.js → frontend WebSocket client module
 
 ────────────────────────────
 📮 Webhook System
 ────────────────────────────
-[ ] Add webhook call in daemon.py on success/fail
-[ ] Send JSON to URL from config.json
+[x] Add webhook call in daemon.py on success/fail
+[x] Send JSON to URL from config.json
 
 ────────────────────────────
 📆 Model Update Checker
 ────────────────────────────
-[ ] Create updater/checker.py with polling on /v1/models/{modelId}
-[ ] Compare SHA and updatedAt
-[ ] Automatically add new versions to queue
-[ ] Log upgrade and notify via webhook
-[ ] Schedule daily with APScheduler
+[x] Create updater/checker.py with polling on /v1/models/{modelId}
+[x] Compare SHA and updatedAt
+[x] Automatically add new versions to queue
+[x] Log upgrade and notify via webhook
+[x] Schedule daily with APScheduler
 
-────────────────────────────
-🐧 Systemd Support (Linux)
-────────────────────────────
 
 ─────────────────────────────
 🐧 Systemd Support (Linux, optional/automatic via installation)
 ─────────────────────────────
-[ ] Create civitai-daemon.service with correct paths (automatic via install.py)
-[ ] Copy to /etc/systemd/system/ (automatic via install.py)
-[ ] daemon-reload + enable + start via systemctl (automatic via install.py)
+[x] Create civitai-daemon.service with correct paths (automatic via install.py)
+[x] Copy to /etc/systemd/system/ (automatic via install.py)
+[x] daemon-reload + enable + start via systemctl (automatic via install.py)
 > Systemd and Linux steps are performed automatically by the install script, since this daemon works as a plugin/extension of another app.
+
+─────────────────────────────
+🪟 Windows Service/Autorun (optional/future)
+─────────────────────────────
+[] Add Windows service/autorun support (e.g. via NSSM, Task Scheduler, or pythonw)
+[] Document Windows install/run steps
+    - Voorbeeld met NSSM (Non-Sucking Service Manager):
+        1. Download nssm.exe van https://nssm.cc/download
+        2. Open een administrator command prompt in de projectmap
+        3. Installeer de service:
+           nssm install civitai-daemon "C:\path\to\python.exe" "C:\pad\naar\launch.py"
+           (Werkdirectory: C:\pad\naar\project)
+        4. Start de service via Windows Services of:
+           nssm start civitai-daemon
+        5. Verwijderen kan met:
+           nssm remove civitai-daemon confirm
+    - Alternatief: gebruik Windows Taakplanner voor autorun bij login.
 
 ────────────────────────────
 ⚙️ Installation Scripts
 ────────────────────────────
-[ ] install.py → Check uv, install dependencies, start launch.py
-[ ] setup.sh → Bash installer + feedback
+[x] install.py → Check uv, install dependencies, start launch.py
+[x] setup.sh → Bash installer + feedback
 
 ────────────────────────────
 🧪 Testing
 ────────────────────────────
-[ ] Start daemon via launch.py
-[ ] Open GUI and check status
-[ ] Test WebSocket via client.js or GUI
-[ ] Send manifest.json and check downloads
-[ ] Read logs: logs/download.log & error.log
-[ ] Inspect database: sqlite-utils completed.db
-[ ] Simulate model update and check upgrade flow
+[x] Start daemon via launch.py
+[x] Open GUI and check status
+[x] Test WebSocket via client.js or GUI
+[x] Send manifest.json and check downloads
+[x] Read logs: logs/download.log & error.log
+[x] Inspect database: sqlite-utils completed.db
+[x] Simulate model update and check upgrade flow
 
 ────────────────────────────
 🎯 Extensions (optional)

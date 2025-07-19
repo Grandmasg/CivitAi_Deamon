@@ -46,7 +46,7 @@ def main():
 
     # Start uvicorn (main process)
     print(f"[launch.py] Starting uvicorn on port {port}...")
-    cmd = f".venv/bin/uvicorn main:app --host 0.0.0.0 --port {port}"
+    cmd = f".venv/bin/uvicorn main:app --host 0.0.0.0 --port {port} --reload"
     try:
         subprocess.run(cmd, shell=True)
     finally:

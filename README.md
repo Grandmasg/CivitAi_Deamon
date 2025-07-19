@@ -10,21 +10,55 @@ This application automates downloads and updates of models via Civitai, featurin
 - Logging and queueing
 - Easily extendable with CI/CD, Telegram, reverse proxy, etc.
 
+
 ## Installation
 1. Clone this repo:
    ```bash
    git clone <repo-url>
    cd CivitAI_Deamon
    ```
-2. Install Python 3.11+ and uv (if needed)
-3. Run the installer:
+2. Install Python 3.11+ and [uv](https://github.com/astral-sh/uv) (if needed)
+3. Install all dependencies (including test tools) in one step:
+   ```bash
+   uv sync
+   ```
+   - All dependencies are managed in `pyproject.toml` (see below).
+   - **Note:** `pytest` is included in main dependencies so it is always installed with `uv sync`.
+4. Run the installer:
    ```bash
    python install.py
    ```
-4. Start the daemon:
+5. Start the daemon:
    ```bash
    python launch.py
    ```
+
+## Dependency Management
+
+All dependencies (including test tools like `pytest`) are specified in `pyproject.toml` under `[tool.poetry.dependencies]`:
+
+```toml
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+fastapi = "*"
+uvicorn = {extras = ["standard"], version = "*"}
+httpx = "*"
+jinja2 = "*"
+sqlite-utils = "*"
+python-multipart = "*"
+apscheduler = "*"
+python-jose = "*"
+pytest = "*"
+```
+
+This ensures that `uv sync` or `pip install .` will always install all required packages for both running and testing the project.
+
+**No separate requirements.txt is needed.**
+
+To run the testsuite:
+```bash
+pytest
+```
 
 ## Files
 - `install.py` — Setup and dependency management
@@ -32,6 +66,23 @@ This application automates downloads and updates of models via Civitai, featurin
 - `main.py` — FastAPI app
 - `webhook_server.py` — Webhook endpoint
 - `config.json` — Configuration (auto-filled)
+
+### Configuration: manifest_mode
+
+The `manifest_mode` option in `config.json` controls how model updates are handled in `manifest.json`:
+
+- `"replace"` (default): When a model update is detected, the existing entry is replaced with the new version (only the latest version is kept).
+- `"append"`: When a model update is detected, the new version is added as an extra entry, so multiple versions of the same model can coexist in the manifest.
+
+Example:
+
+```json
+{
+  "manifest_mode": "replace" // or "append"
+}
+```
+
+Set this option according to your workflow needs.
 - `.gitignore` — Files excluded from git
 
 ## GitHub integration

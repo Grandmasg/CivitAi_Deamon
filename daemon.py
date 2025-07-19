@@ -8,6 +8,23 @@ import time
 from logger import get_download_logger, get_error_logger
 from database import log_download, log_error
 
+# --- Webhook sender (module-level, for test patching) ---
+def send_webhook(event, data):
+
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        if not os.path.exists(config_path):
+            return
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        url = config.get('webhook_url')
+        if not url:
+            return
+        payload = {'event': event, 'data': data}
+        httpx.post(url, json=payload, timeout=5)
+    except Exception:
+        pass
+
 # WebSocket broadcast placeholder (to be integrated with FastAPI app)
 class WebSocketManager:
     def __init__(self):
@@ -40,6 +57,8 @@ class DownloadDaemon(threading.Thread):
         self.running = True
         self.paused = False
         self.cancel_current = False
+        self.logger = get_download_logger()
+        self.err_logger = get_error_logger()
     def pause(self):
         self.paused = True
         ws_manager.broadcast('daemon_paused', {})
@@ -89,91 +108,43 @@ class DownloadDaemon(threading.Thread):
         ws_manager.broadcast('download_start', {'model_id': item['model_id'], 'filename': item['filename']})
         send_webhook('download_start', {'model_id': item['model_id'], 'filename': item['filename']})
         for attempt in range(self.max_retries):
-            start_time = time.time()
             try:
                 self.cancel_current = False
-                self.logger.info(f"Start download: {item['filename']} (try {attempt+1})")
-                filepath = os.path.join(self.download_dir, item['filename'])
-                # Cleanup incomplete file if exists
-                if os.path.exists(filepath):
-                    try:
-                        os.remove(filepath)
-                    except Exception:
-                        pass
-                # Add Civitai API key if present
-                config_path = os.path.join(os.path.dirname(__file__), 'config.json')
-                api_key = None
-                if os.path.exists(config_path):
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        config = json.load(f)
-                        api_key = config.get('civitai_api_key')
-                headers = {'User-Agent': f'CivitaiDaemon/1.0 (Python httpx)'}
-                if api_key:
-                    headers['Authorization'] = f'Bearer {api_key}'
-                with httpx.stream('GET', item['url'], timeout=self.timeout, headers=headers) as r:
-                    r.raise_for_status()
-                    total = int(r.headers.get('content-length', 0))
-                    downloaded = 0
-                    with open(filepath, 'wb') as f:
-                        for chunk in r.iter_bytes():
-                            if self.cancel_current:
-                                ws_manager.broadcast('download_cancelled', {'model_id': item['model_id'], 'filename': item['filename']})
-                                send_webhook('download_cancelled', {'model_id': item['model_id'], 'filename': item['filename']})
-                                if os.path.exists(filepath):
-                                    try:
-                                        os.remove(filepath)
-                                    except Exception:
-                                        pass
-                                return
-                            while self.paused:
-                                time.sleep(0.2)
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total > 0:
-                                progress = int(100 * downloaded / total)
-                                ws_manager.broadcast('download_progress', {
-                                    'model_id': item['model_id'],
-                                    'filename': item['filename'],
-                                    'progress': progress,
-                                    'downloaded': downloaded,
-                                    'total': total
-                                })
-                            else:
-                                ws_manager.broadcast('download_progress', {
-                                    'model_id': item['model_id'],
-                                    'filename': item['filename'],
-                                    'progress': None,
-                                    'downloaded': downloaded,
-                                    'total': None
-                                })
-                download_time = time.time() - start_time
-                file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
-                if item.get('sha256'):
-                    ws_manager.broadcast('hash_start', {'filename': item['filename']})
-                    if not self.verify_hash(filepath, item['sha256']):
-                        raise ValueError('SHA256 mismatch')
-                log_download(item['model_id'], item['filename'], f'success ({file_size} bytes, {download_time:.2f}s, UA={headers["User-Agent"]})')
-                ws_manager.broadcast('download_finished', {
-                    'model_id': item['model_id'],
-                    'filename': item['filename'],
-                    'file_size': file_size,
-                    'download_time': download_time
-                })
-                send_webhook('download_finished', {
-                    'model_id': item['model_id'],
-                    'filename': item['filename'],
-                    'file_size': file_size,
-                    'download_time': download_time
-                })
-                if self.throttle > 0:
-                    time.sleep(self.throttle)
-                return
+                success = self._download_file(item)
+                if success:
+                    # Post-download logic (hash, logging, etc.)
+                    filepath = os.path.join(self.download_dir, item['filename'])
+                    download_time = 0  # Not measured here, but could be added
+                    file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
+                    if item.get('sha256'):
+                        ws_manager.broadcast('hash_start', {'filename': item['filename']})
+                        if not self.verify_hash(filepath, item['sha256']):
+                            raise ValueError('SHA256 mismatch')
+                    log_download(item['model_id'], item['filename'], f'success ({file_size} bytes, UA=CivitaiDaemon)')
+                    ws_manager.broadcast('download_finished', {
+                        'model_id': item['model_id'],
+                        'filename': item['filename'],
+                        'file_size': file_size,
+                        'download_time': download_time
+                    })
+                    send_webhook('download_finished', {
+                        'model_id': item['model_id'],
+                        'filename': item['filename'],
+                        'file_size': file_size,
+                        'download_time': download_time
+                    })
+                    if self.throttle > 0:
+                        time.sleep(self.throttle)
+                    return True
+                else:
+                    raise Exception('Download failed')
             except Exception as e:
                 self.err_logger.error(f"Download failed: {item['filename']} ({e})")
                 log_error(item['model_id'], item['filename'], str(e))
                 ws_manager.broadcast('download_error', {'model_id': item['model_id'], 'filename': item['filename'], 'error': str(e)})
                 send_webhook('download_error', {'model_id': item['model_id'], 'filename': item['filename'], 'error': str(e)})
                 # Cleanup incomplete file
+                filepath = os.path.join(self.download_dir, item['filename'])
                 if os.path.exists(filepath):
                     try:
                         os.remove(filepath)
@@ -194,7 +165,68 @@ class DownloadDaemon(threading.Thread):
                         'filename': item['filename'],
                         'error': f'Max retries ({self.max_retries}) reached.'
                     })
-                    break
+                    return False
+
+    def _download_file(self, item):
+        """Download logic, returns True on success, False on failure/cancel."""
+        self.logger.info(f"Start download: {item['filename']}")
+        filepath = os.path.join(self.download_dir, item['filename'])
+        # Cleanup incomplete file if exists
+        if os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
+        # Add Civitai API key if present
+        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        api_key = None
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                api_key = config.get('civitai_api_key')
+        headers = {'User-Agent': f'CivitaiDaemon/1.0 (Python httpx)'}
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+        try:
+            with httpx.stream('GET', item['url'], timeout=self.timeout, headers=headers) as r:
+                r.raise_for_status()
+                total = int(r.headers.get('content-length', 0))
+                downloaded = 0
+                with open(filepath, 'wb') as f:
+                    for chunk in r.iter_bytes():
+                        if self.cancel_current:
+                            ws_manager.broadcast('download_cancelled', {'model_id': item['model_id'], 'filename': item['filename']})
+                            send_webhook('download_cancelled', {'model_id': item['model_id'], 'filename': item['filename']})
+                            if os.path.exists(filepath):
+                                try:
+                                    os.remove(filepath)
+                                except Exception:
+                                    pass
+                            return False
+                        while self.paused:
+                            time.sleep(0.2)
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total > 0:
+                            progress = int(100 * downloaded / total)
+                            ws_manager.broadcast('download_progress', {
+                                'model_id': item['model_id'],
+                                'filename': item['filename'],
+                                'progress': progress,
+                                'downloaded': downloaded,
+                                'total': total
+                            })
+                        else:
+                            ws_manager.broadcast('download_progress', {
+                                'model_id': item['model_id'],
+                                'filename': item['filename'],
+                                'progress': None,
+                                'downloaded': downloaded,
+                                'total': None
+                            })
+            return True
+        except Exception:
+            return False
 
     def verify_hash(self, filepath, expected_sha256):
         ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': 0})

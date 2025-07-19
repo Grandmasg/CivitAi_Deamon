@@ -53,6 +53,25 @@ def update_webhook_url():
     else:
         print(f"[install.py] Using configured webhook port: {port_in_url}")
 
+def create_or_update_systemd_service():
+    import getpass
+    user = getpass.getuser()
+    workdir = os.path.abspath(os.path.dirname(__file__))
+    python = os.path.join(workdir, '.venv', 'bin', 'python')
+    launch = os.path.join(workdir, 'launch.py')
+    with open(os.path.join('systemd', 'civitai-daemon.service'), 'r') as f:
+        template = f.read()
+    service = template.replace('{USER}', user).replace('{WORKDIR}', workdir).replace('{PYTHON}', python).replace('{LAUNCH}', launch)
+    service_path = '/etc/systemd/system/civitai-daemon.service'
+    print(f"[install.py] Writing systemd service to {service_path} ...")
+    with open('civitai-daemon.service.tmp', 'w') as f:
+        f.write(service)
+    run(f'sudo mv civitai-daemon.service.tmp {service_path}')
+    run('sudo systemctl daemon-reload')
+    run('sudo systemctl enable civitai-daemon.service')
+    run('sudo systemctl restart civitai-daemon.service')
+    print("[install.py] Systemd service installed and started.")
+
 def main():
     ensure_uv()
     if not os.path.isdir('.venv'):
@@ -63,6 +82,7 @@ def main():
     print("[install.py] Installing dependencies with uv pip...")
     run(".venv/bin/uv pip install fastapi uvicorn[standard] httpx jinja2 sqlite-utils python-multipart apscheduler")
     update_webhook_url()
+    create_or_update_systemd_service()  # Added systemd service creation/update logic
     print("[install.py] Done. Activate with: source .venv/bin/activate")
 
 if __name__ == "__main__":

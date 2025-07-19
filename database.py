@@ -30,16 +30,18 @@ def init_db():
 def log_download(model_id, filename, status, message=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    from datetime import datetime, timezone
     c.execute('INSERT INTO downloads (timestamp, model_id, filename, status, message) VALUES (?, ?, ?, ?, ?)',
-              (datetime.utcnow().isoformat(), model_id, filename, status, message))
+              (datetime.now(timezone.utc).isoformat(), model_id, filename, status, message))
     conn.commit()
     conn.close()
 
 def log_error(model_id, filename, error):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    from datetime import datetime, timezone
     c.execute('INSERT INTO errors (timestamp, model_id, filename, error) VALUES (?, ?, ?, ?)',
-              (datetime.utcnow().isoformat(), model_id, filename, error))
+              (datetime.now(timezone.utc).isoformat(), model_id, filename, error))
     conn.commit()
     conn.close()
 
