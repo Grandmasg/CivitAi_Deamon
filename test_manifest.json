@@ -1,1 +1,1 @@
-[{"modelId": "1", "url": "url1", "filename": "f1", "sha256": "sha1", "priority": 1}, {"modelId": "2", "url": "url2", "filename": "f2"}]
+[{"modelId": "1", "modelVersionId": "101", "url": "url1", "filename": "f1", "sha256": "sha1", "priority": 1, "model_type": "checkpoint"}, {"modelId": "2", "modelVersionId": "202", "url": "url2", "filename": "f2", "model_type": "vae"}]

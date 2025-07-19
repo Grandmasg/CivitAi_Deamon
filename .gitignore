@@ -1,3 +1,7 @@
+# Test download directory
+test_download/
+# Ignore models directory and all its contents (root and data/)
+data/models/
 # Project roadmaps / stappenplannen
 Step-by-step_plan_CivitAI_Deamon.txt
 # Python

@@ -2,20 +2,31 @@ import sqlite3
 import os
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'completed.db')
+DB_PATH = os.environ.get('CIVITAI_DAEMON_DB_PATH', os.path.join(os.path.dirname(__file__), 'data', 'completed.db'))
 
 # --- Database initialization ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    # Add model_type column if not exists
     c.execute('''CREATE TABLE IF NOT EXISTS downloads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT,
         model_id TEXT,
+        model_version_id TEXT,
         filename TEXT,
+        model_type TEXT,
         status TEXT,
-        message TEXT
+        message TEXT,
+        file_size INTEGER,
+        download_time REAL
     )''')
+    # Migrate old tables (add columns if missing)
+    for col, typ in [('file_size', 'INTEGER'), ('model_type', 'TEXT'), ('download_time', 'REAL')]:
+        try:
+            c.execute(f'ALTER TABLE downloads ADD COLUMN {col} {typ}')
+        except sqlite3.OperationalError:
+            pass  # Already exists
     c.execute('''CREATE TABLE IF NOT EXISTS errors (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT,
@@ -27,14 +38,78 @@ def init_db():
     conn.close()
 
 # --- Logging functions ---
-def log_download(model_id, filename, status, message=None):
+def log_download(model_id, model_version_id, filename, status, message=None, model_type=None, file_size=None, download_time=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     from datetime import datetime, timezone
-    c.execute('INSERT INTO downloads (timestamp, model_id, filename, status, message) VALUES (?, ?, ?, ?, ?)',
-              (datetime.now(timezone.utc).isoformat(), model_id, filename, status, message))
+    c.execute('INSERT INTO downloads (timestamp, model_id, model_version_id, filename, model_type, status, message, file_size, download_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              (datetime.now(timezone.utc).isoformat(), model_id, model_version_id, filename, model_type, status, message, file_size, download_time))
     conn.commit()
     conn.close()
+
+def download_time_stats_per_type():
+    """
+    Returns: list of (model_type, avg_time, min_time, max_time, count)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT model_type, AVG(download_time), MIN(download_time), MAX(download_time), COUNT(*) FROM downloads WHERE download_time IS NOT NULL GROUP BY model_type')
+    result = c.fetchall()
+    conn.close()
+    return result
+
+# --- Metrics ---
+def downloads_per_day_type_status():
+    """
+    Returns: list of (day, model_type, status, count)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT substr(timestamp, 1, 10) as day, model_type, status, COUNT(*) FROM downloads GROUP BY day, model_type, status ORDER BY day DESC')
+    result = c.fetchall()
+    conn.close()
+    return result
+
+def file_size_stats_per_type():
+    """
+    Returns: list of (model_type, avg_size, min_size, max_size, count)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT model_type, AVG(file_size), MIN(file_size), MAX(file_size), COUNT(*) FROM downloads WHERE file_size IS NOT NULL GROUP BY model_type')
+    result = c.fetchall()
+    conn.close()
+    return result
+
+def get_all_metrics():
+    """
+    Returns a dict with all metrics for API use
+    """
+    try:
+        return {
+            'downloads_per_day': downloads_per_day(),
+            'downloads_per_day_type_status': downloads_per_day_type_status(),
+            'file_size_stats_per_type': file_size_stats_per_type(),
+            'download_time_stats_per_type': download_time_stats_per_type(),
+            'total_downloads': get_total_downloads(),
+        }
+    except Exception:
+        # Bij een fout altijd alle keys met lege waarden teruggeven
+        return {
+            'downloads_per_day': [],
+            'downloads_per_day_type_status': [],
+            'file_size_stats_per_type': [],
+            'download_time_stats_per_type': [],
+            'total_downloads': 0,
+        }
+
+def get_total_downloads():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT COUNT(*) FROM downloads')
+    result = c.fetchone()[0]
+    conn.close()
+    return result
 
 def log_error(model_id, filename, error):
     conn = sqlite3.connect(DB_PATH)
@@ -51,6 +126,27 @@ def downloads_per_day():
     c = conn.cursor()
     c.execute('SELECT substr(timestamp, 1, 10) as day, COUNT(*) FROM downloads GROUP BY day ORDER BY day DESC')
     result = c.fetchall()
+    conn.close()
+    return result
+
+def downloads_per_day_per_type():
+    """
+    Returns a list of tuples: (day, model_type, count)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    # Gebruik nu de model_type kolom
+    c.execute('SELECT substr(timestamp, 1, 10) as day, model_type FROM downloads')
+    rows = c.fetchall()
+    stats = {}
+    for day, model_type in rows:
+        mtype = model_type or 'other'
+        key = (day, mtype)
+        stats[key] = stats.get(key, 0) + 1
+    # Maak een lijst van (day, model_type, count)
+    result = [(day, mtype, count) for (day, mtype), count in stats.items()]
+    # Sorteer op dag aflopend, dan type
+    result.sort(key=lambda x: (x[0], x[1]), reverse=True)
     conn.close()
     return result
 

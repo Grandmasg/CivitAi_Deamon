@@ -5,13 +5,25 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import pytest
 from fastapi.testclient import TestClient
 
+
+# Use a temporary DB for all tests in this module
+import tempfile
 import importlib
+import shutil
+import os
+tmp_db = tempfile.NamedTemporaryFile(delete=False)
+os.environ['CIVITAI_DAEMON_DB_PATH'] = tmp_db.name
+importlib.invalidate_caches()
 main = importlib.import_module("main")
 app = main.app
 get_current_user = main.get_current_user
 # Patch authentication for tests: always return an admin user
 app.dependency_overrides[get_current_user] = lambda: {"user": "admin", "role": "admin"}
 client = TestClient(app)
+
+def teardown_module(module):
+    tmp_db.close()
+    os.unlink(tmp_db.name)
 
 def test_admin_pause_resume_stop():
     # Pause

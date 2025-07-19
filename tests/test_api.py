@@ -39,4 +39,10 @@ def test_completed():
 def test_metrics():
     response = client.get("/api/metrics", headers={"Authorization": "Bearer testtoken"})
     assert response.status_code == 200
-    assert "downloads_per_day" in response.json()
+    data = response.json()
+    # Check alle relevante velden
+    assert "downloads_per_day" in data
+    assert "downloads_per_day_type_status" in data
+    assert "file_size_stats_per_type" in data
+    assert "download_time_stats_per_type" in data
+    assert "total_downloads" in data

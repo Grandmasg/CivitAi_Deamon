@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -7,11 +8,11 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from daemon import make_queue_item, DownloadDaemon
-
 from logger import get_download_logger
 from database import downloads_per_day
+from database import get_all_metrics
 
-import threading
+
 # Initialization (after imports, before any function/endpoint definitions)
 log = get_download_logger()
 daemon_instance = DownloadDaemon()
@@ -41,7 +42,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
-
 # --- Auth dependency must be defined before any endpoint uses it ---
 def get_current_user(token: str = Depends(oauth2_scheme), require_admin: bool = False):
     try:
@@ -56,10 +56,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), require_admin: bool = 
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
 
+
 # REST API endpoints
 @app.get("/gui", response_class=HTMLResponse)
 def gui(request: Request):
     return templates.TemplateResponse(request, "gui.html", {"request": request})
+
 
 # Admin endpoints (pause, resume, stop)
 @app.post("/api/pause")
@@ -78,6 +80,7 @@ def api_resume(user=Depends(get_current_user)):
     log.info(f"Daemon resumed by {user['user']}")
     return {"status": "resumed"}
 
+
 @app.post("/api/stop")
 def api_stop(user=Depends(get_current_user)):
     if user["role"] != "admin":
@@ -85,6 +88,7 @@ def api_stop(user=Depends(get_current_user)):
     daemon_instance.running = False
     log.info(f"Daemon stopped by {user['user']}")
     return {"status": "stopped"}
+
 
 @app.post("/token")
 async def login(request: Request):
@@ -99,12 +103,14 @@ async def login(request: Request):
 def protected_route(user=Depends(get_current_user)):
     return {"message": f"Hello, {user['user']} (role: {user['role']}). This is a protected endpoint."}
 
+
 # Example admin-only endpoint
 @app.get("/api/admin-only")
 def admin_only_route(user=Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
     return {"message": f"Hello admin {user['user']}! This is an admin-only endpoint."}
+
 
 # WebSocket with JWT auth
 @app.websocket("/ws/downloads")
@@ -131,18 +137,21 @@ async def websocket_endpoint(websocket: WebSocket):
 async def api_download(request: Request, user: str = Depends(get_current_user)):
     data = await request.json()
     # Validate required fields
-    required_fields = ["model_id", "url", "filename"]
+    required_fields = ["model_id", "url", "filename", "model_type", "model_version_id"]
     if not all(f in data and data[f] for f in required_fields):
-        raise HTTPException(status_code=422, detail="Missing required fields: model_id, url, filename")
+        raise HTTPException(status_code=422, detail="Missing required fields: model_id, url, filename, model_type, model_version_id")
     item = make_queue_item(
         model_id=data.get('model_id'),
         url=data.get('url'),
         filename=data.get('filename'),
         sha256=data.get('sha256'),
-        priority=data.get('priority', 0)
+        priority=data.get('priority', 0),
+        model_type=data.get('model_type'),
+        model_version_id=data.get('model_version_id')
     )
     daemon_instance.add_job(item)
     return {"status": "queued", "item": item}
+
 
 @app.post("/api/batch")
 async def api_batch(request: Request, user: str = Depends(get_current_user)):
@@ -154,42 +163,36 @@ async def api_batch(request: Request, user: str = Depends(get_current_user)):
     for entry in manifest:
         if not isinstance(entry, dict):
             continue
-        if not all(f in entry and entry[f] for f in ["model_id", "url", "filename"]):
+        if not all(f in entry and entry[f] for f in ["model_id", "url", "filename", "model_type", "model_version_id"]):
             continue
         item = make_queue_item(
             model_id=entry.get('model_id'),
             url=entry.get('url'),
             filename=entry.get('filename'),
             sha256=entry.get('sha256'),
-            priority=entry.get('priority', 0)
+            priority=entry.get('priority', 0),
+            model_type=entry.get('model_type'),
+            model_version_id=entry.get('model_version_id')
         )
         daemon_instance.add_job(item)
         count += 1
     return {"status": "batch_queued", "count": count}
 
+
 @app.get("/api/status")
 def api_status(user: str = Depends(get_current_user)):
     return {"queue_size": daemon_instance.queue.qsize(), "running": daemon_instance.running, "paused": daemon_instance.paused}
 
-@app.get("/api/completed")
-def api_completed(user: str = Depends(get_current_user)):
-    # Placeholder: would return completed downloads from database
-    completed = []
-    # Example: if you have a completed queue/list, convert items to dicts
-    # completed = [item.__dict__ if hasattr(item, '__dict__') else str(item) for item in daemon_instance.completed]
-    if not completed:
-        completed = ["Geen voltooide downloads."]
-    return {"completed": completed}
 
 @app.get("/api/metrics")
 def api_metrics(user: str = Depends(get_current_user)):
-    # Example: downloads per day
     try:
-        result = downloads_per_day()
+        result = get_all_metrics()
     except Exception as e:
-        result = []
-        log.error(f"Error in downloads_per_day: {e}")
-    return {"downloads_per_day": result}
+        result = {}
+        log.error(f"Error in get_all_metrics: {e}")
+    return result
+
 
 @app.get("/api/queue")
 def api_queue(user: str = Depends(get_current_user)):

@@ -35,12 +35,31 @@
             <ul id="queue-list" class="list-group"></ul>
         </div>
         <div class="mb-4">
-            <h3>Completed Downloads</h3>
-            <ul id="completed-list" class="list-group"></ul>
-        </div>
-        <div class="mb-4">
             <h3>Metrics</h3>
-            <pre id="metrics"></pre>
+            <div id="metrics-tables">
+                <div class="mb-3">
+                    <h5>Downloads per day, type & status</h5>
+                    <table class="table table-sm table-bordered" id="metrics-per-day-type-status">
+                        <thead><tr><th>Day</th><th>Type</th><th>Status</th><th>Count</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="mb-3">
+                    <h5>File size stats per type</h5>
+                    <table class="table table-sm table-bordered" id="metrics-file-size">
+                        <thead><tr><th>Type</th><th>Average</th><th>Min</th><th>Max</th><th>Count</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="mb-3">
+                    <h5>Download time stats per type (seconds)</h5>
+                    <table class="table table-sm table-bordered" id="metrics-download-time">
+                        <thead><tr><th>Type</th><th>Average</th><th>Min</th><th>Max</th><th>Count</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <pre id="metrics" style="display:none;"></pre>
         </div>
     </div>
     <script src="/static/client.js"></script>

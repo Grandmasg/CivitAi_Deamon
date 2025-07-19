@@ -35,25 +35,26 @@ class WebSocketManager:
 ws_manager = WebSocketManager()
 
 # Download queue item structure
-def make_queue_item(model_id, url, filename, sha256=None, priority=0):
+def make_queue_item(model_id, url, filename, sha256=None, priority=0, model_type=None, model_version_id=None):
     return {
         'model_id': model_id,
         'url': url,
         'filename': filename,
         'sha256': sha256,
         'priority': priority,
-        'retries': 0
+        'retries': 0,
+        'model_type': model_type or 'other',
+        'model_version_id': model_version_id
     }
 
 class DownloadDaemon(threading.Thread):
-    def __init__(self, max_retries=5, download_dir='downloads', throttle=0, timeout=60.0):
+    def __init__(self, max_retries=5, download_dir='', throttle=0, timeout=60.0):
         super().__init__(daemon=True)
         self.queue = queue.PriorityQueue()
         self.max_retries = max_retries
         self.download_dir = download_dir
         self.throttle = throttle  # seconds between downloads
         self.timeout = timeout    # per download
-        os.makedirs(download_dir, exist_ok=True)
         self.running = True
         self.paused = False
         self.cancel_current = False
@@ -110,17 +111,44 @@ class DownloadDaemon(threading.Thread):
         for attempt in range(self.max_retries):
             try:
                 self.cancel_current = False
-                success = self._download_file(item)
+                t0 = time.time()
+                success, filepath = self._download_file(item)
+                t1 = time.time()
+                download_time = round(t1 - t0, 3)
+                file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
                 if success:
-                    # Post-download logic (hash, logging, etc.)
-                    filepath = os.path.join(self.download_dir, item['filename'])
-                    download_time = 0  # Not measured here, but could be added
-                    file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
                     if item.get('sha256'):
                         ws_manager.broadcast('hash_start', {'filename': item['filename']})
-                        if not self.verify_hash(filepath, item['sha256']):
+                        # Custom SHA256 mismatch logging
+                        actual_hash = None
+                        hash_mismatch = False
+                        with open(filepath, 'rb') as f:
+                            sha256 = hashlib.sha256()
+                            while True:
+                                chunk = f.read(1024*1024)
+                                if not chunk:
+                                    break
+                                sha256.update(chunk)
+                            actual_hash = sha256.hexdigest().lower()
+                        expected_hash = str(item['sha256']).lower()
+                        if actual_hash != expected_hash:
+                            hash_mismatch = True
+                            msg = (f"SHA256 mismatch for {item['filename']}\n"
+                                   f"Expected: {expected_hash}\n"
+                                   f"Actual:   {actual_hash}")
+                            self.err_logger.error(msg)
+                            log_error(item['model_id'], item['filename'], msg)
                             raise ValueError('SHA256 mismatch')
-                    log_download(item['model_id'], item['filename'], f'success ({file_size} bytes, UA=CivitaiDaemon)')
+                    log_download(
+                        item['model_id'],
+                        item.get('model_version_id'),
+                        item['filename'],
+                        f'success',
+                        message=f'success ({file_size} bytes, UA=CivitaiDaemon)',
+                        model_type=item.get('model_type'),
+                        file_size=file_size,
+                        download_time=download_time
+                    )
                     ws_manager.broadcast('download_finished', {
                         'model_id': item['model_id'],
                         'filename': item['filename'],
@@ -137,10 +165,23 @@ class DownloadDaemon(threading.Thread):
                         time.sleep(self.throttle)
                     return True
                 else:
+                    # Log fail/cancel met juiste status
+                    log_download(
+                        item['model_id'],
+                        item.get('model_version_id'),
+                        item['filename'],
+                        'failed',
+                        message='Download failed',
+                        model_type=item.get('model_type'),
+                        file_size=file_size,
+                        download_time=download_time
+                    )
                     raise Exception('Download failed')
             except Exception as e:
-                self.err_logger.error(f"Download failed: {item['filename']} ({e})")
-                log_error(item['model_id'], item['filename'], str(e))
+                import traceback
+                tb = traceback.format_exc()
+                self.err_logger.error(f"Download failed: {item['filename']} (url: {item.get('url')}) ({e})\nTraceback:\n{tb}")
+                log_error(item['model_id'], item['filename'], f"{e}\nURL: {item.get('url')}\nTraceback:\n{tb}")
                 ws_manager.broadcast('download_error', {'model_id': item['model_id'], 'filename': item['filename'], 'error': str(e)})
                 send_webhook('download_error', {'model_id': item['model_id'], 'filename': item['filename'], 'error': str(e)})
                 # Cleanup incomplete file
@@ -168,9 +209,12 @@ class DownloadDaemon(threading.Thread):
                     return False
 
     def _download_file(self, item):
-        """Download logic, returns True on success, False on failure/cancel."""
+        """Download logic, returns (True, filepath) on success, (False, filepath) on failure/cancel."""
         self.logger.info(f"Start download: {item['filename']}")
-        filepath = os.path.join(self.download_dir, item['filename'])
+        model_type = item.get('model_type', 'other')
+        subdir = os.path.join('data', 'models', model_type)
+        os.makedirs(subdir, exist_ok=True)
+        filepath = os.path.join(subdir, item['filename'])
         # Cleanup incomplete file if exists
         if os.path.exists(filepath):
             try:
@@ -188,8 +232,19 @@ class DownloadDaemon(threading.Thread):
         if api_key:
             headers['Authorization'] = f'Bearer {api_key}'
         try:
-            with httpx.stream('GET', item['url'], timeout=self.timeout, headers=headers) as r:
-                r.raise_for_status()
+            with httpx.stream('GET', item['url'], timeout=self.timeout, headers=headers, follow_redirects=True) as r:
+                try:
+                    r.raise_for_status()
+                except httpx.HTTPStatusError as http_err:
+                    # Log statuscode, response body en redirect chain
+                    body = r.read().decode(errors='replace') if hasattr(r, 'read') else ''
+                    redirects = []
+                    if hasattr(r, 'history') and r.history:
+                        for resp in r.history:
+                            redirects.append(f"{resp.status_code} -> {resp.headers.get('location', '')}")
+                    redirect_info = f" Redirect chain: {' | '.join(redirects)}" if redirects else ''
+                    self.err_logger.error(f"HTTP error {r.status_code} for {item['url']}: {body}{redirect_info}")
+                    return False, filepath
                 total = int(r.headers.get('content-length', 0))
                 downloaded = 0
                 with open(filepath, 'wb') as f:
@@ -202,7 +257,7 @@ class DownloadDaemon(threading.Thread):
                                     os.remove(filepath)
                                 except Exception:
                                     pass
-                            return False
+                            return False, filepath
                         while self.paused:
                             time.sleep(0.2)
                         f.write(chunk)
@@ -224,9 +279,10 @@ class DownloadDaemon(threading.Thread):
                                 'downloaded': downloaded,
                                 'total': None
                             })
-            return True
-        except Exception:
-            return False
+            return True, filepath
+        except Exception as e:
+            self.err_logger.error(f"Exception during download for {item.get('url')}: {e}")
+            return False, filepath
 
     def verify_hash(self, filepath, expected_sha256):
         ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': 0})
@@ -241,7 +297,8 @@ class DownloadDaemon(threading.Thread):
                 sha256.update(chunk)
                 read += len(chunk)
                 ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': int(100*read/total)})
-        result = sha256.hexdigest() == expected_sha256
+        # Compare hashes in lowercase to avoid case sensitivity issues
+        result = sha256.hexdigest().lower() == str(expected_sha256).lower()
         ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': 100})
         return result
 
@@ -258,7 +315,9 @@ def process_manifest(manifest_path, daemon):
             url=entry.get('url'),
             filename=entry.get('filename'),
             sha256=entry.get('sha256'),
-            priority=entry.get('priority', 0)
+            priority=entry.get('priority', 0),
+            model_type=entry.get('model_type'),
+            model_version_id=entry.get('modelVersionId')
         )
         daemon.add_job(item)
     ws_manager.broadcast('batch_queued', {'count': len(manifest)})

@@ -56,24 +56,6 @@ function updateQueue() {
     });
 }
 
-function updateCompleted() {
-    if (!jwtToken) return;
-    fetch('/api/completed', {
-        headers: { 'Authorization': 'Bearer ' + jwtToken }
-    })
-    .then(resp => resp.json())
-    .then(data => {
-        const list = document.getElementById('completed-list');
-        list.innerHTML = '';
-        (data.completed || []).forEach(item => {
-            const li = document.createElement('li');
-            li.className = 'list-group-item';
-            li.textContent = item.filename || JSON.stringify(item);
-            list.appendChild(li);
-        });
-    });
-}
-
 function updateMetrics() {
     if (!jwtToken) return;
     fetch('/api/metrics', {
@@ -81,7 +63,108 @@ function updateMetrics() {
     })
     .then(resp => resp.json())
     .then(data => {
-        document.getElementById('metrics').textContent = JSON.stringify(data, null, 2);
+        // Per dag, type, status
+        const tbody1 = document.querySelector('#metrics-per-day-type-status tbody');
+        if (!tbody1) {
+            console.error('metrics-per-day-type-status tbody not found!');
+            return;
+        }
+        const perDay = data.downloads_per_day_type_status || [];
+        tbody1.innerHTML = '';
+        if (perDay.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 4;
+            td.textContent = 'Geen data';
+            tr.appendChild(td);
+            tbody1.appendChild(tr);
+        } else {
+            perDay.forEach(row => {
+                const tr = document.createElement('tr');
+                row.forEach(cell => {
+                    const td = document.createElement('td');
+                    td.textContent = cell;
+                    tr.appendChild(td);
+                });
+                tbody1.appendChild(tr);
+            });
+        }
+
+        // File size stats per type
+        const tbody2 = document.querySelector('#metrics-file-size tbody');
+        if (!tbody2) {
+            console.error('metrics-file-size tbody not found!');
+            return;
+        }
+        const fileSize = data.file_size_stats_per_type || [];
+        tbody2.innerHTML = '';
+        if (fileSize.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.textContent = 'Geen data';
+            tr.appendChild(td);
+            tbody2.appendChild(tr);
+        } else {
+            fileSize.forEach(row => {
+                const tr = document.createElement('tr');
+                row.forEach((cell, i) => {
+                    const td = document.createElement('td');
+                    if (i > 0 && cell != null) {
+                        td.textContent = Math.round(cell/1024/1024) + ' MB';
+                    } else {
+                        td.textContent = cell;
+                    }
+                    tr.appendChild(td);
+                });
+                tbody2.appendChild(tr);
+            });
+        }
+
+        // Download time stats per type
+        const tbody3 = document.querySelector('#metrics-download-time tbody');
+        if (!tbody3) {
+            console.error('metrics-download-time tbody not found!');
+            return;
+        }
+        const dlTime = data.download_time_stats_per_type || [];
+        tbody3.innerHTML = '';
+        if (dlTime.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.textContent = 'Geen data';
+            tr.appendChild(td);
+            tbody3.appendChild(tr);
+        } else {
+            dlTime.forEach(row => {
+                const tr = document.createElement('tr');
+                row.forEach(cell => {
+                    const td = document.createElement('td');
+                    if (typeof cell === 'number') {
+                        td.textContent = cell.toFixed(2);
+                    } else {
+                        td.textContent = cell;
+                    }
+                    tr.appendChild(td);
+                });
+                tbody3.appendChild(tr);
+            });
+        }
+
+        // Totaal aantal downloads
+        let totalDiv = document.getElementById('metrics-total-downloads');
+        if (!totalDiv) {
+            totalDiv = document.createElement('div');
+            totalDiv.id = 'metrics-total-downloads';
+            const metricsTables = document.getElementById('metrics-tables');
+            if (metricsTables) metricsTables.prepend(totalDiv);
+        }
+        if (totalDiv) totalDiv.innerHTML = `<b>Totaal aantal downloads:</b> ${data.total_downloads || 0}`;
+
+        // Optioneel: ruwe JSON tonen voor debug
+        const metricsDiv = document.getElementById('metrics');
+        if (metricsDiv) metricsDiv.textContent = JSON.stringify(data, null, 2);
     });
 }
 
@@ -92,7 +175,6 @@ function connectWebSocket() {
     ws.onmessage = (event) => {
         // Refresh alles bij event
         updateStatus();
-        updateCompleted();
         updateMetrics();
         updateQueue();
     };
@@ -101,7 +183,6 @@ function connectWebSocket() {
 
 document.getElementById('refresh-status').onclick = function() {
     updateStatus();
-    updateCompleted();
     updateMetrics();
     updateQueue();
 };
@@ -119,7 +200,6 @@ window.login = async function login(username, role) {
         localStorage.setItem('jwtToken', jwtToken);
         connectWebSocket();
         updateStatus();
-        updateCompleted();
         updateMetrics();
         document.getElementById('login-form').style.display = 'none';
         document.getElementById('logout-btn').style.display = '';
@@ -135,22 +215,22 @@ window.logout = function() {
     document.getElementById('logout-btn').style.display = 'none';
     updateAdminControls();
 };
-
-// On load
-if (jwtToken) {
-    connectWebSocket();
-    updateStatus();
-    updateCompleted();
-    updateMetrics();
-    updateQueue();
-    document.getElementById('login-form').style.display = 'none';
-    document.getElementById('logout-btn').style.display = '';
-    updateAdminControls();
-} else {
-    document.getElementById('login-form').style.display = '';
-    document.getElementById('logout-btn').style.display = 'none';
-    updateAdminControls();
-}
+// On load, alles pas na DOMContentLoaded
+document.addEventListener('DOMContentLoaded', function() {
+    if (jwtToken) {
+        connectWebSocket();
+        updateStatus();
+        updateMetrics();
+        updateQueue();
+        document.getElementById('login-form').style.display = 'none';
+        document.getElementById('logout-btn').style.display = '';
+        updateAdminControls();
+    } else {
+        document.getElementById('login-form').style.display = '';
+        document.getElementById('logout-btn').style.display = 'none';
+        updateAdminControls();
+    }
+});
 
 // Admin button actions
 document.addEventListener('DOMContentLoaded', function() {

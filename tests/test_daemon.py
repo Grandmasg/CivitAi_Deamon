@@ -5,34 +5,45 @@ import unittest.mock as mock
 
 class TestDownloadDaemon(unittest.TestCase):
     def setUp(self):
+        from database import init_db
+        init_db()
         self.daemon = DownloadDaemon(max_retries=1, download_dir='test_downloads', throttle=0)
 
     def test_make_queue_item(self):
-        item = make_queue_item('id', 'url', 'file', 'sha', 1)
+        item = make_queue_item('id', 'url', 'file', 'sha', 1, 'checkpoint', model_version_id='ver999')
         self.assertEqual(item['model_id'], 'id')
         self.assertEqual(item['priority'], 1)
         self.assertEqual(item['retries'], 0)
+        self.assertEqual(item['model_type'], 'checkpoint')
+        self.assertEqual(item['model_version_id'], 'ver999')
 
     def test_add_job(self):
-        item = make_queue_item('id', 'url', 'file')
+        item = make_queue_item('id', 'url', 'file', model_type='vae', model_version_id='ver888')
+        self.daemon._download_file = lambda x: (True, 'dummy')
         self.daemon.add_job(item)
         self.assertFalse(self.daemon.queue.empty())
+        self.assertEqual(item['model_type'], 'vae')
+        self.assertEqual(item['model_version_id'], 'ver888')
 
     @mock.patch('daemon.send_webhook', lambda *a, **kw: None)
     def test_process_item_success(self):
-        # Simulate a successful download by mocking _download_file
-        item = make_queue_item('id', 'url', 'file')
-        self.daemon._download_file = lambda x: True
+        # Simuleer een succesvolle download door _download_file te mocken als tuple
+        item = make_queue_item('id', 'url', 'file', model_type='lora', model_version_id='ver777')
+        self.daemon._download_file = lambda x: (True, 'dummy')
         result = self.daemon.process_item(item)
         self.assertTrue(result)
+        self.assertEqual(item['model_type'], 'lora')
+        self.assertEqual(item['model_version_id'], 'ver777')
 
     @mock.patch('daemon.send_webhook', lambda *a, **kw: None)
     def test_process_item_failure(self):
-        # Simulate a failed download by mocking _download_file
-        item = make_queue_item('id', 'url', 'file')
-        self.daemon._download_file = lambda x: False
+        # Simuleer een mislukte download door _download_file te mocken als tuple
+        item = make_queue_item('id', 'url', 'file', model_type='vae', model_version_id='ver666')
+        self.daemon._download_file = lambda x: (False, 'dummy')
         result = self.daemon.process_item(item)
         self.assertFalse(result)
+        self.assertEqual(item['model_type'], 'vae')
+        self.assertEqual(item['model_version_id'], 'ver666')
 
     def test_pause_resume(self):
         self.daemon.pause()
@@ -42,12 +53,13 @@ class TestDownloadDaemon(unittest.TestCase):
 
     def test_cancel(self):
         # Add a job and then cancel it
-        item = make_queue_item('id', 'url', 'file')
+        item = make_queue_item('id', 'url', 'file', model_type='other')
         self.daemon.add_job(item)
         # Cancel does not require job_id, just cancels current
         self.daemon.cancel()
         # The queue should still have the job, but cancel_current is True
         self.assertTrue(self.daemon.cancel_current)
+        self.assertEqual(item['model_type'], 'other')
 
 if __name__ == '__main__':
     unittest.main()

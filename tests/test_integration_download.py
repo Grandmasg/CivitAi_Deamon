@@ -24,16 +24,17 @@ def test_full_download_flow(monkeypatch):
     import main
     main.daemon_instance = daemon
     # Patch _download_file to simulate success
-    daemon._download_file = lambda item: True
+    daemon._download_file = lambda item: (True, 'dummy')
     # Init DB for test
     from database import init_db
     init_db()
     # Add a job via API
-    job = {"model_id": "testid", "url": "http://example.com/file", "filename": "file.txt"}
+    job = {"model_id": "testid", "model_version_id": "ver123", "url": "http://example.com/file", "filename": "file.txt", "model_type": "checkpoint"}
     resp = client.post("/api/download", json=job, headers={"Authorization": "Bearer testtoken"})
     assert resp.status_code == 200
     # Process the job
     item = daemon.queue.get_nowait()[2]
+    assert item['model_version_id'] == "ver123"
     result = daemon.process_item(item)
     assert result is True
     # Clean up

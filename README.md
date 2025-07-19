@@ -8,13 +8,15 @@ This application automates downloads and updates of models via Civitai, featurin
 - Webhook endpoint
 - Automatic port selection
 - Logging and queueing
+- Model downloads organized in `data/models/<model_type>/`
+- Each job requires a `model_type` (e.g. checkpoint, lora, vae, etc)
 - Easily extendable with CI/CD, Telegram, reverse proxy, etc.
 
 
 ## Installation
 1. Clone this repo:
    ```bash
-   git clone <repo-url>
+   git clone https://github.com/Grandmasg/CivitAi_Deamon.git
    cd CivitAI_Deamon
    ```
 2. Install Python 3.11+ and [uv](https://github.com/astral-sh/uv) (if needed)
@@ -66,6 +68,33 @@ pytest
 - `main.py` — FastAPI app
 - `webhook_server.py` — Webhook endpoint
 - `config.json` — Configuration (auto-filled)
+
+-### Download Directory Structure
+
+All models are downloaded to:
+
+```
+data/models/<model_type>/<filename>
+```
+
+For example, a checkpoint model will be saved as `data/models/checkpoint/model.safetensors`.
+
+### manifest.json and API: Required Fields
+
+Each job **must** include a `model_type` field. Example manifest entry:
+
+```json
+[
+  {
+    "modelId": 12345,
+    "model_type": "checkpoint",
+    "sha256": "...",
+    "url": "https://...",
+    "filename": "model.safetensors",
+    "priority": 1
+  }
+]
+```
 
 ### Configuration: manifest_mode
 

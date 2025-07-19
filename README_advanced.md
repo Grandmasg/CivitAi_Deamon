@@ -20,13 +20,25 @@ This document describes advanced configuration, integration, and testing options
 
 - `manifest_mode`: See README for explanation. Use `replace` to keep only the latest version, or `append` to keep all versions in manifest.json.
 
+
+## Download Directory Structure
+
+All models are downloaded to:
+
+```
+data/models/<model_type>/<filename>
+```
+
+For example, a checkpoint model will be saved as `data/models/checkpoint/model.safetensors`.
+
 ## manifest.json — Structure
 
-Each entry describes a model to be managed:
+Each entry **must** include a `model_type` field:
 ```json
 [
   {
     "modelId": 12345,
+    "model_type": "checkpoint",
     "sha256": "...",
     "url": "https://...",
     "filename": "...",
