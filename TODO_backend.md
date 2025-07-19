@@ -26,7 +26,7 @@
 ────────────────────────────
 🔌 Smart Port Selection
 ────────────────────────────
-[ ] Write launch.py:
+[x] Write launch.py:
     - exclude port 8000
     - scan range 8100–8200
     - pick a random free port (only if 'active_port' is not set in config.json)

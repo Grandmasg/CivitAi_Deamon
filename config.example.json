@@ -1,0 +1,7 @@
+{
+  "webhook_url": "https://your.webhook.url",
+  "throttle": 2,
+  "retries": 3,
+  "workers": 2,
+  "active_port": null
+}
