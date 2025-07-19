@@ -36,11 +36,11 @@
 ────────────────────────────
 🧱 Build Backend Modules
 ────────────────────────────
-[ ] logger.py → Rotating logs
-[ ] database.py → Log to SQLite + analysis
-[ ] daemon.py → Queue, retry, hash, WebSocket, manifest processing
-[ ] updater/checker.py → Civitai update checker + scheduler
-[ ] main.py → FastAPI app + routers + startup event
+[x] logger.py → Rotating logs
+[x] database.py → Log to SQLite + analysis
+[x] daemon.py → Queue, retry, hash, WebSocket, manifest processing
+[x] updater/checker.py → Civitai update checker + scheduler
+[x] main.py → FastAPI app + routers + startup event
 
 ────────────────────────────
 📡 API & GUI

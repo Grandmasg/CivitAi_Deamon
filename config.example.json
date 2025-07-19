@@ -3,5 +3,7 @@
   "throttle": 2,
   "retries": 3,
   "workers": 2,
-  "active_port": null
+  "active_port": null,
+  "civitai_api_key": "<optioneel: jouw civitai api key>",
+  "civitai_url": "https://civitai.com/api/v1"
 }
