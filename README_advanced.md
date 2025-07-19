@@ -4,12 +4,15 @@ This document describes advanced configuration, integration, and testing options
 
 ## config.json — Example and Options
 
+
 ```json
 {
   "webhook_url": "http://localhost:9000/webhook",
   "throttle": 2,
   "retries": 3,
   "workers": 2,
+  "timeout": 600,
+  "download_dir": "data/models",
   "active_port": 8000,
   "civitai_api_key": "<your-api-key>",
   "jwt_secret": "<your-jwt-secret>",
@@ -18,6 +21,8 @@ This document describes advanced configuration, integration, and testing options
 }
 ```
 
+- `timeout`: Maximum download time per file in seconds (default: 60, increase for large models)
+- `download_dir`: Base directory for all downloads (default: `data/models`)
 - `manifest_mode`: See README for explanation. Use `replace` to keep only the latest version, or `append` to keep all versions in manifest.json.
 
 
