@@ -8,19 +8,19 @@ This plan helps you migrate your current CivitAI_Daemon project to the new, modu
 
 ## 1. Preparation
 
-- [x] Commit all current changes to git.
-- [x] Make a backup of your project folder.
+- [x] Commit all current changes to git.     <!-- Ensures a clean starting point for migration. -->
+- [x] Make a backup of your project folder.  <!-- Prevents data loss in case of migration issues. -->
 
 ## 2. Create New Folders
 
-- [x] backend/
-- [x] frontend/
-- [x] configs/
-- [x] data/
-- [x] logs/
-- [x] tests/
-- [x] test_downloads/
-- [x] systemd/
+- [x] backend/        <!-- For all backend Python code. -->
+- [x] frontend/       <!-- For frontend assets (HTML, JS, CSS, etc.). -->
+- [x] configs/        <!-- For configuration files (JSON, manifest, etc.). -->
+- [x] data/           <!-- For model data and databases. -->
+- [x] logs/           <!-- For log files. -->
+- [x] tests/          <!-- For test scripts. -->
+- [x] test_downloads/ <!-- For test data used in tests. -->
+- [x] systemd/        <!-- For systemd service files. -->
 
 ## 3. Move Files
 
@@ -35,6 +35,7 @@ This plan helps you migrate your current CivitAI_Daemon project to the new, modu
 ## 4. Add __init__.py
 
 - [x] Add an empty `__init__.py` to backend/ (and optionally to other Python folders).
+  <!-- This makes the folders proper Python packages for import. -->
 
 ## 5. Update Imports
 
@@ -42,16 +43,19 @@ This plan helps you migrate your current CivitAI_Daemon project to the new, modu
   - from `import daemon` to `from backend import daemon`
   - from `import main` to `from backend import main`
 - [x] Update any relative imports if needed.
+  <!-- Ensures all code references the new structure. -->
 
 ## 6. Update Paths in Scripts
 
 - [x] Update all hardcoded file/folder paths in scripts (install.py, launch.py, etc.) to match the new structure.
 - [x] Update systemd service template to use the new backend/ path for launch.py.
+  <!-- Prevents runtime errors due to moved files. -->
 
 ## 7. Update Documentation
 
 - [x] Update README.md and other docs to reflect the new structure and paths.
 - [x] Add or update the `PROJECT_STRUCTURE.md` file.
+  <!-- Keeps documentation accurate and helpful. -->
 
 ## 8. Test Everything
 
@@ -59,17 +63,19 @@ This plan helps you migrate your current CivitAI_Daemon project to the new, modu
 - [x] Run all tests and check if imports and paths work.
 - [x] Start the daemon and check the GUI, API, and WebSocket.
 - [x] Check logging, config loading,
+  <!-- Ensures the refactored project works as expected. -->
 
 ## 9. Clean Up
 
-- Remove any obsolete files or folders from the old structure.
-- Commit all changes to git.
+- [x] Remove any obsolete files or folders from the old structure. <!-- Old files/folders have been removed. -->
+- [x] Commit all changes to git. <!-- All changes committed, migration finalized. -->
+  <!-- Finalize migration and keep version control history clean. -->
 
 ---
 
-**Tip:__ Migrate stap voor stap en commit tussendoor. Zo kun je makkelijk terug als er iets misgaat.
+**Tip:__ Migrate step by step and commit in between. This way you can easily revert if something goes wrong.
 
-**Optional:__ Gebruik een Python tool als `pytest --maxfail=1 -v` om snel te zien waar imports of paden niet kloppen.
+**Optional:__ Use a Python tool like `pytest --maxfail=1 -v` to quickly see where imports or paths are incorrect.
 
 ---
 
