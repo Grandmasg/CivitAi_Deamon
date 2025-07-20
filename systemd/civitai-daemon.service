@@ -1,0 +1,13 @@
+[Unit]
+Description=Civitai Download Daemon
+After=network.target
+
+[Service]
+Type=simple
+User={USER}
+WorkingDirectory={WORKDIR}
+ExecStart={PYTHON} {LAUNCH}
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
