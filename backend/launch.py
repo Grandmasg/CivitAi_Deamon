@@ -6,7 +6,7 @@ import socket
 import sys
 import subprocess
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.json')
+CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
 
 
 def load_config():
@@ -41,12 +41,12 @@ def main():
 
     # Start webhook server (background)
     print(f"[launch.py] Starting webhook_server.py in background...")
-    webhook_cmd = f".venv/bin/python webhook_server.py"
+    webhook_cmd = f".venv/bin/python backend/webhook_server.py"
     webhook_proc = subprocess.Popen(webhook_cmd, shell=True)
 
     # Start uvicorn (main process)
     print(f"[launch.py] Starting uvicorn on port {port}...")
-    cmd = f".venv/bin/uvicorn main:app --host 0.0.0.0 --port {port} --reload"
+    cmd = f".venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port {port} --reload"
     try:
         subprocess.run(cmd, shell=True)
     finally:

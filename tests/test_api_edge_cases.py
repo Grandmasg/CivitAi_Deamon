@@ -14,7 +14,7 @@ import os
 tmp_db = tempfile.NamedTemporaryFile(delete=False)
 os.environ['CIVITAI_DAEMON_DB_PATH'] = tmp_db.name
 importlib.invalidate_caches()
-main = importlib.import_module("main")
+main = importlib.import_module("backend.main")
 app = main.app
 get_current_user = main.get_current_user
 client = TestClient(app)
@@ -61,8 +61,8 @@ def test_metrics_db_error(monkeypatch):
     # Simuleer database error
     def fail():
         raise Exception("db fail")
-    from main import downloads_per_day
-    monkeypatch.setattr("main.downloads_per_day", fail)
+    from backend.database import downloads_per_day
+    monkeypatch.setattr("backend.database.downloads_per_day", fail)
     resp = client.get("/api/metrics", headers={"Authorization": "Bearer testtoken"})
     assert resp.status_code == 200
     data = resp.json()

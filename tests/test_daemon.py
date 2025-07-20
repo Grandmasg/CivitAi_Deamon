@@ -1,11 +1,11 @@
 import unittest
 
-from daemon import make_queue_item, DownloadDaemon
+from backend.daemon import make_queue_item, DownloadDaemon
 import unittest.mock as mock
 
 class TestDownloadDaemon(unittest.TestCase):
     def setUp(self):
-        from database import init_db
+        from backend.database import init_db
         init_db()
         self.daemon = DownloadDaemon(max_retries=1, download_dir='test_downloads', throttle=0)
 
@@ -27,7 +27,7 @@ class TestDownloadDaemon(unittest.TestCase):
         self.assertEqual(item['model_version_id'], 'ver888')
         self.assertEqual(item['base_model'], 'SDXL')
 
-    @mock.patch('daemon.send_webhook', lambda *a, **kw: None)
+    @mock.patch('backend.daemon.send_webhook', lambda *a, **kw: None)
     def test_process_item_success(self):
         # Simuleer een succesvolle download door _download_file te mocken als tuple
         item = make_queue_item('id', 'url', 'file', model_type='lora', model_version_id='ver777', base_model='SDXL')
@@ -38,7 +38,7 @@ class TestDownloadDaemon(unittest.TestCase):
         self.assertEqual(item['model_version_id'], 'ver777')
         self.assertEqual(item['base_model'], 'SDXL')
 
-    @mock.patch('daemon.send_webhook', lambda *a, **kw: None)
+    @mock.patch('backend.daemon.send_webhook', lambda *a, **kw: None)
     def test_process_item_failure(self):
         # Simuleer een mislukte download door _download_file te mocken als tuple
         item = make_queue_item('id', 'url', 'file', model_type='vae', model_version_id='ver666', base_model='SDXL')

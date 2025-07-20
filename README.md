@@ -57,7 +57,7 @@ This application automates downloads and updates of models via Civitai, featurin
 5. Start the daemon:
 
    ```bash
-   python launch.py
+   python backend/launch.py
    ```
 
 ## Dependency Management
@@ -106,7 +106,7 @@ Want to test live download progress in a Jupyter notebook? Follow these steps:
 2. **Start the backend in a terminal with test authentication enabled:**
 
    ```bash
-   CIVITAI_TEST_AUTH=1 uvicorn main:app --reload
+   CIVITAI_TEST_AUTH=1 uvicorn backend.main:app --reload
    ```
 
    This will run the backend with test authentication, so the notebook can connect using the test token.

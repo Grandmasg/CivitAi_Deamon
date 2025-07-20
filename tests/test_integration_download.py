@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import importlib
-main = importlib.import_module("main")
+main = importlib.import_module("backend.main")
 app = main.app
 get_current_user = main.get_current_user
 import tempfile
@@ -17,16 +17,16 @@ client = TestClient(app)
 
 def test_full_download_flow(monkeypatch):
     # Use a temp dir for downloads
-    from daemon import DownloadDaemon
+    from backend.daemon import DownloadDaemon
     temp_dir = tempfile.mkdtemp()
     daemon = DownloadDaemon(download_dir=temp_dir, throttle=0)
     # Patch daemon_instance in main to use our test daemon
-    import main
+    import backend.main as main
     main.daemon_instance = daemon
     # Patch _download_file to simulate success
     daemon._download_file = lambda item: (True, 'dummy')
     # Init DB for test
-    from database import init_db
+    from backend.database import init_db
     init_db()
     # Add a job via API
     job = {"model_id": "testid", "model_version_id": "ver123", "url": "http://example.com/file", "filename": "file.txt", "model_type": "checkpoint"}

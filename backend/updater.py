@@ -2,8 +2,8 @@ import time
 import httpx
 import json
 import threading
-from logger import get_download_logger, get_error_logger
-from database import log_download
+from utils.logger import get_download_logger, get_error_logger
+# from backend.database import log_download
 
 class ModelUpdater(threading.Thread):
     def __init__(self, manifest_path, interval=86400):

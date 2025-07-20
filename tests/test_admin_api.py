@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 tmp_db = tempfile.NamedTemporaryFile(delete=False)
 os.environ['CIVITAI_DAEMON_DB_PATH'] = tmp_db.name
 importlib.invalidate_caches()
-main = importlib.import_module("main")
+main = importlib.import_module("backend.main")
 app = main.app
 get_current_user = main.get_current_user
 # Patch authentication for tests: always return an admin user

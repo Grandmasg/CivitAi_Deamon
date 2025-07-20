@@ -123,6 +123,12 @@
 
 ---
 
+## Queue Loading/Progress Indicator (optional)
+
+- [ ] (Optional) Stuur queue/progress events via WebSocket zodat de frontend een laadindicator of voortgangsbalk kan tonen
+
+---
+
 ## Webhook Testing & Development (TODO)
 
 - [ ] Create a simple webhook listener for local testing (e.g. FastAPI or Flask app on port 9000)

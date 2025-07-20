@@ -7,7 +7,7 @@ import sys
 from fastapi import FastAPI, Request
 import uvicorn
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.json')
+CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
 WEBHOOK_PATH = '/webhook'
 
 app = FastAPI()

@@ -2,7 +2,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-LOG_DIR = os.path.join(os.path.dirname(__file__), 'logs')
+LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'logs')
 DOWNLOAD_LOG = os.path.join(LOG_DIR, 'download.log')
 ERROR_LOG = os.path.join(LOG_DIR, 'error.log')
 
@@ -28,7 +28,6 @@ _error_logger.addHandler(_error_handler)
 _error_logger.propagate = False
 
 # Convenience functions
-
 def get_download_logger():
     return _download_logger
 

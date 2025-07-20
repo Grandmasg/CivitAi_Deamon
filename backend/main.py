@@ -8,11 +8,9 @@ from jose import JWTError, jwt
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from daemon import make_queue_item, DownloadDaemon, ws_manager
-from logger import get_download_logger
-from database import downloads_per_day
-from database import get_all_metrics
-
+from backend.daemon import make_queue_item, DownloadDaemon, ws_manager
+from utils.logger import get_download_logger
+from backend.database import get_all_metrics
 
 # Initialization (after imports, before any function/endpoint definitions)
 log = get_download_logger()
@@ -23,7 +21,7 @@ if not hasattr(daemon_instance, 'is_alive') or not daemon_instance.is_alive():
 
 
 def load_secret_key():
-    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
     if os.path.exists(config_path):
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
@@ -46,8 +44,8 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 
 # --- Auth dependency must be defined before any endpoint uses it ---
@@ -174,7 +172,7 @@ async def api_download(request: Request, user: str = Depends(get_current_user)):
     required_fields = ["model_id", "url", "filename", "model_type", "model_version_id"]
     if not all(f in data and data[f] for f in required_fields):
         raise HTTPException(status_code=422, detail="Missing required fields: model_id, url, filename, model_type, model_version_id")
-    from database import is_already_downloaded
+    from backend.database import is_already_downloaded
     if is_already_downloaded(data.get('model_id'), data.get('model_version_id')):
         return {"status": "already downloaded"}
     item = make_queue_item(
@@ -196,7 +194,7 @@ async def api_batch(request: Request, user: str = Depends(get_current_user)):
     manifest = data.get('manifest', [])
     if not isinstance(manifest, list):
         raise HTTPException(status_code=422, detail="Manifest must be a list of jobs")
-    from database import is_already_downloaded
+    from backend.database import is_already_downloaded
     count = 0
     skipped = 0
     for entry in manifest:

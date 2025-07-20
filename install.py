@@ -34,7 +34,7 @@ def pick_free_webhook_port():
 
 def update_webhook_url():
     import json
-    CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.json')
+    CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'configs', 'config.json'))
     WEBHOOK_PATH = '/webhook'
     with open(CONFIG_PATH, 'r') as f:
         cfg = json.load(f)

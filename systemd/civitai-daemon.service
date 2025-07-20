@@ -8,6 +8,7 @@ User={USER}
 WorkingDirectory={WORKDIR}
 ExecStart={PYTHON} {LAUNCH}
 Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target

@@ -1,10 +1,10 @@
 import unittest
 import os
-from database import log_download, log_error, downloads_per_day
+from backend.database import log_download, log_error, downloads_per_day
 
 class TestDatabaseLogging(unittest.TestCase):
     def test_base_model_metrics(self):
-        from database import download_time_stats_per_base_model, file_size_stats_per_base_model, downloads_per_day_base_model_status
+        from backend.database import download_time_stats_per_base_model, file_size_stats_per_base_model, downloads_per_day_base_model_status
         # Insert multiple downloads with different base_models
         log_download('idA', 'verA', 'fileA', 'success', file_size=100, download_time=1.5, base_model='SDXL')
         log_download('idB', 'verB', 'fileB', 'success', file_size=200, download_time=2.5, base_model='SDXL')
@@ -33,13 +33,13 @@ class TestDatabaseLogging(unittest.TestCase):
         # Zorg dat database leeg is voor test
         if os.path.exists(self.db_path):
             os.remove(self.db_path)
-        from database import init_db
+        from backend.database import init_db
         init_db()
 
     def test_log_download(self):
         # Test with base_model
         log_download('id1', 'ver1', 'file1', 'success', base_model='SDXL')
-        from database import DB_PATH
+        from backend.database import DB_PATH
         import sqlite3
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()

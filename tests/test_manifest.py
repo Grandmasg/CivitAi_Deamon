@@ -1,6 +1,6 @@
 import unittest
 import json
-from daemon import process_manifest, make_queue_item
+from backend.daemon import process_manifest, make_queue_item
 
 class DummyDaemon:
     def __init__(self):
@@ -14,10 +14,10 @@ class TestManifestParsing(unittest.TestCase):
             {"modelId": "1", "modelVersionId": "101", "url": "url1", "filename": "f1", "sha256": "sha1", "priority": 1, "model_type": "checkpoint", "baseModel": "SD15"},
             {"modelId": "2", "modelVersionId": "202", "url": "url2", "filename": "f2", "model_type": "vae", "baseModel": "SDXL"}
         ]
-        with open('test_manifest.json', 'w') as f:
+        with open('configs/test_manifest.json', 'w') as f:
             json.dump(manifest, f)
         daemon = DummyDaemon()
-        process_manifest('test_manifest.json', daemon)
+        process_manifest('configs/test_manifest.json', daemon)
         self.assertEqual(len(daemon.jobs), 2)
         self.assertEqual(daemon.jobs[0]['model_id'], '1')
         self.assertEqual(daemon.jobs[0]['model_version_id'], '101')
@@ -30,10 +30,10 @@ class TestManifestParsing(unittest.TestCase):
     def test_manifest_validation(self):
         # Fout pad: ontbrekende velden
         manifest = [{"modelId": "1", "modelVersionId": None, "model_type": "other", "baseModel": None}]
-        with open('test_manifest_invalid.json', 'w') as f:
+        with open('configs/test_manifest_invalid.json', 'w') as f:
             json.dump(manifest, f)
         daemon = DummyDaemon()
-        process_manifest('test_manifest_invalid.json', daemon)
+        process_manifest('configs/test_manifest_invalid.json', daemon)
         self.assertEqual(daemon.jobs[0]['url'], None)
         self.assertEqual(daemon.jobs[0]['model_type'], 'other')
         self.assertIsNone(daemon.jobs[0]['model_version_id'])

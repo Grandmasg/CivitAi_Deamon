@@ -5,14 +5,14 @@ import httpx
 import os
 import json
 import time
-from logger import get_download_logger, get_error_logger
-from database import log_download, log_error
+from utils.logger import get_download_logger, get_error_logger
+from backend.database import log_download, log_error
 
 # --- Webhook sender (module-level, for test patching) ---
 def send_webhook(event, data):
 
     try:
-        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
         if not os.path.exists(config_path):
             return
         with open(config_path, 'r', encoding='utf-8') as f:
@@ -95,7 +95,7 @@ class DownloadDaemon(threading.Thread):
     def __init__(self, max_retries=None, download_dir=None, throttle=None, timeout=None, workers=None):
         super().__init__(daemon=True)
         # Load config values if not provided
-        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
         config = {}
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -149,7 +149,7 @@ class DownloadDaemon(threading.Thread):
 
     def send_webhook(event, data):
         try:
-            config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+            config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
             if not os.path.exists(config_path):
                 return
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -281,7 +281,7 @@ class DownloadDaemon(threading.Thread):
             except Exception:
                 pass
         # Add Civitai API key if present
-        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
         api_key = None
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:

@@ -158,15 +158,24 @@ function updateMetrics() {
             });
         }
 
-        // Totaal aantal downloads
-        let totalDiv = document.getElementById('metrics-total-downloads');
-        if (!totalDiv) {
-            totalDiv = document.createElement('div');
-            totalDiv.id = 'metrics-total-downloads';
+
+        // Unieke downloads/fails + totaal
+        let uniquesDiv = document.getElementById('metrics-uniques');
+        if (!uniquesDiv) {
+            uniquesDiv = document.createElement('div');
+            uniquesDiv.id = 'metrics-uniques';
             const metricsTables = document.getElementById('metrics-tables');
-            if (metricsTables) metricsTables.prepend(totalDiv);
+            if (metricsTables) metricsTables.parentNode.insertBefore(uniquesDiv, metricsTables);
         }
-        if (totalDiv) totalDiv.innerHTML = `<b>Totaal aantal downloads:</b> ${data.total_downloads || 0}`;
+        if (uniquesDiv) {
+            uniquesDiv.innerHTML = `
+                <b>Totaal unieke downloads:</b> ${data.unique_successful_downloads || 0}
+                &nbsp;|&nbsp;
+                <b>Totaal unieke fails:</b> ${data.unique_failed_downloads || 0}
+                &nbsp;|&nbsp;
+                <b>Totaal aantal pogingen:</b> ${data.total_downloads || 0}
+            `;
+        }
 
         // Optioneel: ruwe JSON tonen voor debug
         const metricsDiv = document.getElementById('metrics');

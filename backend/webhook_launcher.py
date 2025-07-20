@@ -3,7 +3,7 @@ import os
 import random
 import socket
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.json')
+CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
 WEBHOOK_PORT_RANGE = list(range(9000, 9101))
 WEBHOOK_PATH = '/webhook'
 

@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 
 import importlib
-main = importlib.import_module("main")
+main = importlib.import_module("backend.main")
 app = main.app
 get_current_user = main.get_current_user
 # Patch authentication for tests: always return a test user
