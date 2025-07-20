@@ -1,16 +1,17 @@
 
 # 🧭 TODO-frontend.txt — CivitAI Daemon Search Frontend (v3 - API-native & interactive)
 
-────────────────────────────
-🧠 Structure & Routing
-────────────────────────────
-[ ] Project folder: frontend/search_gui/
-[ ] File structure:
-      - templates/search.html
-      - static/search.js
-      - routes/search.py
-[ ] FastAPI GUI route: /gui/search
-[ ] Backend API-proxy: /api/search → fetches data via CivitAI API
+---
+
+## Structure & Routing
+
+- [ ] Project folder: `frontend/search_gui/`
+- [ ] File structure:
+  - `templates/search.html`
+  - `static/search.js`
+  - `routes/search.py`
+- [ ] FastAPI GUI route: `/gui/search`
+- [ ] Backend API-proxy: `/api/search` → fetches data via CivitAI API
 
 ────────────────────────────
 🔍 API-compatible filters (no query by default)
@@ -47,7 +48,7 @@
       - Creator, filesize, publish date
       - Preview (image / video / fallback)
           - images[0] → fallback images[1] → /static/default_preview.png
-          - Detect .mp4/.webm → show <video autoplay muted>
+          - Detect .mp4/.webm → display video player (autoplay, muted)
       - Checkbox → add to manifest
       - Clickable card opens detail overlay
 
@@ -84,7 +85,6 @@
 ────────────────────────────
 📥 Downloadvoortgang + hashcontrole
 ────────────────────────────
-
 
 [ ] Button: “📊 View Progress” in GUI
     - Opens modal or tab with progress list

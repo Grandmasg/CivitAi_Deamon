@@ -10,40 +10,44 @@ class TestDownloadDaemon(unittest.TestCase):
         self.daemon = DownloadDaemon(max_retries=1, download_dir='test_downloads', throttle=0)
 
     def test_make_queue_item(self):
-        item = make_queue_item('id', 'url', 'file', 'sha', 1, 'checkpoint', model_version_id='ver999')
+        item = make_queue_item('id', 'url', 'file', 'sha', 1, 'checkpoint', model_version_id='ver999', base_model='SD15')
         self.assertEqual(item['model_id'], 'id')
         self.assertEqual(item['priority'], 1)
         self.assertEqual(item['retries'], 0)
         self.assertEqual(item['model_type'], 'checkpoint')
         self.assertEqual(item['model_version_id'], 'ver999')
+        self.assertEqual(item['base_model'], 'SD15')
 
     def test_add_job(self):
-        item = make_queue_item('id', 'url', 'file', model_type='vae', model_version_id='ver888')
+        item = make_queue_item('id', 'url', 'file', model_type='vae', model_version_id='ver888', base_model='SDXL')
         self.daemon._download_file = lambda x: (True, 'dummy')
         self.daemon.add_job(item)
         self.assertFalse(self.daemon.queue.empty())
         self.assertEqual(item['model_type'], 'vae')
         self.assertEqual(item['model_version_id'], 'ver888')
+        self.assertEqual(item['base_model'], 'SDXL')
 
     @mock.patch('daemon.send_webhook', lambda *a, **kw: None)
     def test_process_item_success(self):
         # Simuleer een succesvolle download door _download_file te mocken als tuple
-        item = make_queue_item('id', 'url', 'file', model_type='lora', model_version_id='ver777')
+        item = make_queue_item('id', 'url', 'file', model_type='lora', model_version_id='ver777', base_model='SDXL')
         self.daemon._download_file = lambda x: (True, 'dummy')
         result = self.daemon.process_item(item)
         self.assertTrue(result)
         self.assertEqual(item['model_type'], 'lora')
         self.assertEqual(item['model_version_id'], 'ver777')
+        self.assertEqual(item['base_model'], 'SDXL')
 
     @mock.patch('daemon.send_webhook', lambda *a, **kw: None)
     def test_process_item_failure(self):
         # Simuleer een mislukte download door _download_file te mocken als tuple
-        item = make_queue_item('id', 'url', 'file', model_type='vae', model_version_id='ver666')
+        item = make_queue_item('id', 'url', 'file', model_type='vae', model_version_id='ver666', base_model='SDXL')
         self.daemon._download_file = lambda x: (False, 'dummy')
         result = self.daemon.process_item(item)
         self.assertFalse(result)
         self.assertEqual(item['model_type'], 'vae')
         self.assertEqual(item['model_version_id'], 'ver666')
+        self.assertEqual(item['base_model'], 'SDXL')
 
     def test_pause_resume(self):
         self.daemon.pause()

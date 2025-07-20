@@ -26,16 +26,59 @@ def send_webhook(event, data):
         pass
 
 # WebSocket broadcast placeholder (to be integrated with FastAPI app)
+
+import threading
+import asyncio
 class WebSocketManager:
     def __init__(self):
         self.connections = set()
+        self.lock = threading.Lock()
+        self.loop = None  # To be set from FastAPI app
+
+    def set_loop(self, loop):
+        self.loop = loop
+
+    def add(self, ws):
+        with self.lock:
+            self.connections.add(ws)
+        print(f"[WebSocketManager] Added connection: {ws}")
+
+    def remove(self, ws):
+        with self.lock:
+            self.connections.discard(ws)
+        print(f"[WebSocketManager] Removed connection: {ws}")
+
+    async def abroadcast(self, event, data):
+        import json
+        msg = json.dumps({"event": event, "data": data})
+        print(f"[WebSocketManager.abroadcast] {msg}")  # Debug log
+        to_remove = []
+        with self.lock:
+            connections = list(self.connections)
+        for ws in connections:
+            try:
+                await ws.send_text(msg)
+            except Exception as e:
+                print(f"[WebSocketManager] Failed to send to {ws}: {e}")
+                to_remove.append(ws)
+        for ws in to_remove:
+            self.remove(ws)
+
     def broadcast(self, event, data):
-        # In main.py: call ws_manager.broadcast(event, data) to all clients
-        pass
+        # Thread-safe: schedule abroadcast on the event loop
+        if self.loop is None:
+            print("[WebSocketManager] No event loop set for broadcast!")
+            return
+        coro = self.abroadcast(event, data)
+        asyncio.run_coroutine_threadsafe(coro, self.loop)
+
 ws_manager = WebSocketManager()
 
 # Download queue item structure
-def make_queue_item(model_id, url, filename, sha256=None, priority=0, model_type=None, model_version_id=None):
+def make_queue_item(model_id, url, filename, sha256=None, priority=None, model_type=None, model_version_id=None, base_model=None):
+    # Default priority is 2 if not set, so explicit 0 or 1 are always higher priority
+    if priority is None:
+        priority = 2
     return {
         'model_id': model_id,
         'url': url,
@@ -44,7 +87,8 @@ def make_queue_item(model_id, url, filename, sha256=None, priority=0, model_type
         'priority': priority,
         'retries': 0,
         'model_type': model_type or 'other',
-        'model_version_id': model_version_id
+        'model_version_id': model_version_id,
+        'base_model': base_model
     }
 
 class DownloadDaemon(threading.Thread):
@@ -160,7 +204,8 @@ class DownloadDaemon(threading.Thread):
                         message=f'success ({file_size} bytes, UA=CivitaiDaemon)',
                         model_type=item.get('model_type'),
                         file_size=file_size,
-                        download_time=download_time
+                        download_time=download_time,
+                        base_model=item.get('base_model')
                     )
                     ws_manager.broadcast('download_finished', {
                         'model_id': item['model_id'],
@@ -187,7 +232,8 @@ class DownloadDaemon(threading.Thread):
                         message='Download failed',
                         model_type=item.get('model_type'),
                         file_size=file_size,
-                        download_time=download_time
+                        download_time=download_time,
+                        base_model=item.get('base_model')
                     )
                     raise Exception('Download failed')
             except Exception as e:
@@ -260,6 +306,7 @@ class DownloadDaemon(threading.Thread):
                     return False, filepath
                 total = int(r.headers.get('content-length', 0))
                 downloaded = 0
+                last_progress_sent = 0
                 with open(filepath, 'wb') as f:
                     for chunk in r.iter_bytes():
                         if self.cancel_current:
@@ -275,23 +322,38 @@ class DownloadDaemon(threading.Thread):
                             time.sleep(0.2)
                         f.write(chunk)
                         downloaded += len(chunk)
+                        now = time.time()
+                        # Only send progress every 0.2s, but always send 100% at the end
                         if total > 0:
                             progress = int(100 * downloaded / total)
-                            ws_manager.broadcast('download_progress', {
-                                'model_id': item['model_id'],
-                                'filename': item['filename'],
-                                'progress': progress,
-                                'downloaded': downloaded,
-                                'total': total
-                            })
+                            if (now - last_progress_sent > 0.2) or (downloaded == total):
+                                ws_manager.broadcast('download_progress', {
+                                    'model_id': item['model_id'],
+                                    'filename': item['filename'],
+                                    'progress': progress,
+                                    'downloaded': downloaded,
+                                    'total': total
+                                })
+                                last_progress_sent = now
                         else:
-                            ws_manager.broadcast('download_progress', {
-                                'model_id': item['model_id'],
-                                'filename': item['filename'],
-                                'progress': None,
-                                'downloaded': downloaded,
-                                'total': None
-                            })
+                            if (now - last_progress_sent > 0.2):
+                                ws_manager.broadcast('download_progress', {
+                                    'model_id': item['model_id'],
+                                    'filename': item['filename'],
+                                    'progress': None,
+                                    'downloaded': downloaded,
+                                    'total': None
+                                })
+                                last_progress_sent = now
+                # Always send 100% at the end if not already sent
+                if total > 0 and downloaded == total:
+                    ws_manager.broadcast('download_progress', {
+                        'model_id': item['model_id'],
+                        'filename': item['filename'],
+                        'progress': 100,
+                        'downloaded': downloaded,
+                        'total': total
+                    })
             return True, filepath
         except Exception as e:
             self.err_logger.error(f"Exception during download for {item.get('url')}: {e}")
@@ -301,6 +363,7 @@ class DownloadDaemon(threading.Thread):
         ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': 0})
         sha256 = hashlib.sha256()
         total = os.path.getsize(filepath)
+        last_progress_sent = 0
         with open(filepath, 'rb') as f:
             read = 0
             while True:
@@ -309,10 +372,16 @@ class DownloadDaemon(threading.Thread):
                     break
                 sha256.update(chunk)
                 read += len(chunk)
-                ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': int(100*read/total)})
+                now = time.time()
+                progress = int(100*read/total)
+                if (now - last_progress_sent > 0.2) or (read == total):
+                    ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': progress})
+                    last_progress_sent = now
+        # Always send 100% at the end if not already sent
+        if read == total:
+            ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': 100})
         # Compare hashes in lowercase to avoid case sensitivity issues
         result = sha256.hexdigest().lower() == str(expected_sha256).lower()
-        ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': 100})
         return result
 
     def stop(self):
@@ -328,9 +397,10 @@ def process_manifest(manifest_path, daemon):
             url=entry.get('url'),
             filename=entry.get('filename'),
             sha256=entry.get('sha256'),
-            priority=entry.get('priority', 0),
+            priority=entry.get('priority') if 'priority' in entry else None,
             model_type=entry.get('model_type'),
-            model_version_id=entry.get('modelVersionId')
+            model_version_id=entry.get('modelVersionId'),
+            base_model=entry.get('baseModel')
         )
         daemon.add_job(item)
     ws_manager.broadcast('batch_queued', {'count': len(manifest)})

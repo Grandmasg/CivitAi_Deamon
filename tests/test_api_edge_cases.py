@@ -54,8 +54,8 @@ def test_batch_invalid_manifest():
     manifest = [{"model_id": "id", "url": "url", "filename": "file", "model_type": "vae"}]
     resp2 = client.post("/api/batch", json={"manifest": manifest})
     assert resp2.status_code == 200
-    # Should skip jobs missing model_version_id, so count should be 0
-    assert resp2.json().get("count") == 0
+    # Should skip jobs missing model_version_id, so queued should be 0
+    assert resp2.json().get("queued") == 0
 
 def test_metrics_db_error(monkeypatch):
     # Simuleer database error

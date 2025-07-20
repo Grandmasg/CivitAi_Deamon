@@ -4,7 +4,6 @@ This document describes advanced configuration, integration, and testing options
 
 ## config.json — Example and Options
 
-
 ```json
 {
   "webhook_url": "http://localhost:9000/webhook",
@@ -25,12 +24,11 @@ This document describes advanced configuration, integration, and testing options
 - `download_dir`: Base directory for all downloads (default: `data/models`)
 - `manifest_mode`: See README for explanation. Use `replace` to keep only the latest version, or `append` to keep all versions in manifest.json.
 
-
 ## Download Directory Structure
 
 All models are downloaded to:
 
-```
+```text
 data/models/<model_type>/<filename>
 ```
 
@@ -39,6 +37,7 @@ For example, a checkpoint model will be saved as `data/models/checkpoint/model.s
 ## manifest.json — Structure
 
 Each entry **must** include a `model_type` field:
+
 ```json
 [
   {
@@ -54,28 +53,32 @@ Each entry **must** include a `model_type` field:
 ```
 
 ## Updater/Checker
+
 - Polls Civitai API daily for each model in manifest.json
 - Compares `sha256` and `updatedAt` to detect updates
 - On update: updates or appends entry in manifest.json (see `manifest_mode`), sends webhook, logs event
 
 ## Webhook Events
+
 - `model_update`: Model version changed (fields: model_id, sha256, updatedAt)
 - `model_update_error`: Error during polling (fields: model_id, error)
 - Download events: see daemon.py for all possible events
 
-
 ## Dependency Management & Testing
 
-- All dependencies (including test tools like `pytest`) are managed in `pyproject.toml` under `[tool.poetry.dependencies]`.
+- All dependencies (including test tools like `pytest`) are managed in `pyproject.toml`.
 - Install everything (including test tools) in one step:
+
   ```bash
   uv sync
   ```
+
 - No `requirements.txt` is needed; all environments use `pyproject.toml` as the single source of truth.
 
 ### Running the Testsuite
 
 To run all tests:
+
 ```bash
 pytest
 ```
@@ -86,6 +89,7 @@ pytest
 - **Windows:** Autorun/service is supported via NSSM or Task Scheduler (see install.py and README).
 
 ## Testing
+
 - Start daemon: `python launch.py`
 - Open GUI at `http://localhost:<port>/gui`
 - Test WebSocket and REST API endpoints
@@ -93,6 +97,7 @@ pytest
 - Check logs and database for results
 
 ## Extending
+
 - Add new webhook integrations (e.g. Telegram) via webhook_url
 - Extend manifest.json with custom fields as needed
 - Use APScheduler for custom polling intervals

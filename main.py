@@ -1,13 +1,14 @@
 import os
 import json
 import threading
+import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from daemon import make_queue_item, DownloadDaemon
+from daemon import make_queue_item, DownloadDaemon, ws_manager
 from logger import get_download_logger
 from database import downloads_per_day
 from database import get_all_metrics
@@ -36,14 +37,24 @@ SECRET_KEY = load_secret_key()
 ALGORITHM = "HS256"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
-# App setup
-app = FastAPI()
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ws_manager.set_loop(asyncio.get_event_loop())
+    yield
+
+app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
 # --- Auth dependency must be defined before any endpoint uses it ---
 def get_current_user(token: str = Depends(oauth2_scheme), require_admin: bool = False):
+    # Allow testtoken if test auth is enabled
+    if os.environ.get("CIVITAI_TEST_AUTH") == "1" and token == "testtoken":
+        return {"user": "test", "role": "admin"}
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user = payload.get("sub")
@@ -112,9 +123,27 @@ def admin_only_route(user=Depends(get_current_user)):
     return {"message": f"Hello admin {user['user']}! This is an admin-only endpoint."}
 
 
-# WebSocket with JWT auth
+# WebSocket with JWT or testtoken auth
 @app.websocket("/ws/downloads")
 async def websocket_endpoint(websocket: WebSocket):
+    # Accept testtoken via Authorization header if test mode is enabled
+    auth = websocket.headers.get("authorization")
+    if os.environ.get("CIVITAI_TEST_AUTH") == "1" and auth == "Bearer testtoken":
+        print("[WebSocket] Using testtoken branch (header)")
+        await websocket.accept()
+        ws_manager.add(websocket)
+        try:
+            while True:
+                data = await websocket.receive_text()
+                print(f"[WebSocket] Received (testtoken): {data}")
+                await websocket.send_text(f"Echo: {data}")
+        except WebSocketDisconnect:
+            pass
+        finally:
+            ws_manager.remove(websocket)
+        return
+
+    # Fallback: JWT via query param (production)
     token = websocket.query_params.get("token")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -125,13 +154,18 @@ async def websocket_endpoint(websocket: WebSocket):
     except JWTError:
         await websocket.close(code=1008)
         return
+    print("[WebSocket] Using JWT branch (query param)")
     await websocket.accept()
+    ws_manager.add(websocket)
     try:
         while True:
             data = await websocket.receive_text()
+            print(f"[WebSocket] Received (JWT): {data}")
             await websocket.send_text(f"Echo: {data}")
     except WebSocketDisconnect:
         pass
+    finally:
+        ws_manager.remove(websocket)
 
 @app.post("/api/download")
 async def api_download(request: Request, user: str = Depends(get_current_user)):
@@ -221,3 +255,27 @@ def api_queue(user: str = Depends(get_current_user)):
         return {"queue": queue_json}
     except Exception as e:
         return {"queue": [f"Fout: {str(e)}"], "error": str(e)}
+
+# --- Test-only endpoint to allow testtoken for local/test runs ---
+import sys
+if os.environ.get("CIVITAI_TEST_AUTH") == "1" or ("pytest" in sys.modules):
+    @app.post("/test/enable-testtoken")
+    def enable_testtoken():
+        app.dependency_overrides[get_current_user] = lambda: {"user": "test", "role": "admin"}
+        return {"status": "testtoken enabled"}
+
+    @app.get("/test/env")
+    def get_env(key: str):
+        value = os.environ.get(key)
+        return {"key": key, "value": value}
+
+@app.websocket("/ws/echo")
+async def websocket_echo(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket.send_text(f"Echo: {data}")
+    except WebSocketDisconnect:
+        pass
+

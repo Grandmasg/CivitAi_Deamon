@@ -1,23 +1,44 @@
-
-[tool.poetry]
+[project]
 name = "civitai-daemon"
 version = "0.1.0"
 description = "Stable Civitai Download Daemon"
-authors = ["Grandmasg <info@grandmasg.nl>"]
+readme = "README.md"
+requires-python = ">=3.11,<4.0"
+license = { text = "MIT" }
+authors = [
+  { name = "Grandmasg", email = "info@grandmasg.nl" }
+]
 
-[tool.poetry.dependencies]
-python = ">=3.11,<4.0"
-fastapi = "*"
-uvicorn = {extras = ["standard"], version = "*"}
-httpx = "*"
-jinja2 = "*"
-sqlite-utils = "*"
-python-multipart = "*"
-apscheduler = "*"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "httpx",
+  "jinja2",
+  "sqlite-utils",
+  "python-multipart",
+  "apscheduler",
+  "python-jose",
+  "pip",
+  "ipykernel",
+  "websockets>=15.0",
+  "pytest"
+]
 
-python-jose = "*"
-pytest = "*"
+[tool.setuptools.packages.find]
+include = ["daemon", "updater", "search_gui"]
+exclude = ["data", "logs", "templates", "static", "configs", "systemd", "test_downloads"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = [
+  "templates/*",
+  "static/*",
+  "configs/*",
+  "systemd/*"
+]
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"

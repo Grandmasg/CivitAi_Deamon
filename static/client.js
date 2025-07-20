@@ -110,8 +110,11 @@ function updateMetrics() {
                 const tr = document.createElement('tr');
                 row.forEach((cell, i) => {
                     const td = document.createElement('td');
-                    if (i > 0 && cell != null) {
+                    // Alleen kolommen 1,2,3 (gemiddelde, min, max) krijgen MB, Count (laatste) nooit
+                    if ((i === 1 || i === 2 || i === 3) && cell != null) {
                         td.textContent = Math.round(cell/1024/1024) + ' MB';
+                    } else if (i === 4) {
+                        td.textContent = (typeof cell === 'number' ? Math.round(cell).toString() : cell); // Count: nooit MB, ook niet bij 0
                     } else {
                         td.textContent = cell;
                     }
@@ -139,9 +142,12 @@ function updateMetrics() {
         } else {
             dlTime.forEach(row => {
                 const tr = document.createElement('tr');
-                row.forEach(cell => {
+                row.forEach((cell, i) => {
                     const td = document.createElement('td');
-                    if (typeof cell === 'number') {
+                    // Count column is always last (i==row.length-1)
+                    if (i === row.length-1 && typeof cell === 'number') {
+                        td.textContent = cell.toString();
+                    } else if (typeof cell === 'number') {
                         td.textContent = cell.toFixed(2);
                     } else {
                         td.textContent = cell;
@@ -165,6 +171,14 @@ function updateMetrics() {
         // Optioneel: ruwe JSON tonen voor debug
         const metricsDiv = document.getElementById('metrics');
         if (metricsDiv) metricsDiv.textContent = JSON.stringify(data, null, 2);
+
+        // Forceer een redraw van de metrics-tabel (workaround voor browser caching/DOM update issues)
+        const metricsTables = document.getElementById('metrics-tables');
+        if (metricsTables) {
+            metricsTables.style.display = 'none';
+            void metricsTables.offsetHeight; // force reflow
+            metricsTables.style.display = '';
+        }
     });
 }
 

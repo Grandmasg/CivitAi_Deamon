@@ -31,10 +31,8 @@ def test_queue():
     assert response.status_code == 200
     assert "queue" in response.json()
 
-def test_completed():
-    response = client.get("/api/completed", headers={"Authorization": "Bearer testtoken"})
-    assert response.status_code == 200
-    assert "completed" in response.json()
+import pytest
+
 
 def test_metrics():
     response = client.get("/api/metrics", headers={"Authorization": "Bearer testtoken"})

@@ -1,3 +1,35 @@
+def download_time_stats_per_base_model():
+    """
+    Returns: list of (base_model, avg_time, min_time, max_time, count)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT base_model, AVG(download_time), MIN(download_time), MAX(download_time), COUNT(*) FROM downloads WHERE download_time IS NOT NULL GROUP BY base_model')
+    result = c.fetchall()
+    conn.close()
+    return result
+
+def file_size_stats_per_base_model():
+    """
+    Returns: list of (base_model, avg_size, min_size, max_size, count)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT base_model, AVG(file_size), MIN(file_size), MAX(file_size), COUNT(*) FROM downloads WHERE file_size IS NOT NULL GROUP BY base_model')
+    result = c.fetchall()
+    conn.close()
+    return result
+
+def downloads_per_day_base_model_status():
+    """
+    Returns: list of (day, base_model, status, count)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT substr(timestamp, 1, 10) as day, base_model, status, COUNT(*) FROM downloads GROUP BY day, base_model, status ORDER BY day DESC')
+    result = c.fetchall()
+    conn.close()
+    return result
 # --- Duplicate check ---
 def is_already_downloaded(model_id, model_version_id):
     """
@@ -13,9 +45,30 @@ import sqlite3
 import os
 from datetime import datetime
 
-DB_PATH = os.environ.get('CIVITAI_DAEMON_DB_PATH', os.path.join(os.path.dirname(__file__), 'data', 'completed.db'))
+import sys
+if "pytest" in sys.modules or os.environ.get("CIVITAI_TEST_AUTH") == "1":
+    DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'test_completed.db')
+else:
+    DB_PATH = os.environ.get('CIVITAI_DAEMON_DB_PATH', os.path.join(os.path.dirname(__file__), 'data', 'completed.db'))
 
 # --- Database initialization ---
+
+def clear_test_db():
+    """Delete all rows from downloads and errors if using test_completed.db. Ignores if tables do not exist."""
+    if DB_PATH.endswith('test_completed.db'):
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        try:
+            c.execute('DELETE FROM downloads')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute('DELETE FROM errors')
+        except sqlite3.OperationalError:
+            pass
+        conn.commit()
+        conn.close()
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -30,10 +83,11 @@ def init_db():
         status TEXT,
         message TEXT,
         file_size INTEGER,
-        download_time REAL
+        download_time REAL,
+        base_model TEXT
     )''')
     # Migrate old tables (add columns if missing)
-    for col, typ in [('file_size', 'INTEGER'), ('model_type', 'TEXT'), ('download_time', 'REAL')]:
+    for col, typ in [('file_size', 'INTEGER'), ('model_type', 'TEXT'), ('download_time', 'REAL'), ('base_model', 'TEXT')]:
         try:
             c.execute(f'ALTER TABLE downloads ADD COLUMN {col} {typ}')
         except sqlite3.OperationalError:
@@ -47,14 +101,17 @@ def init_db():
     )''')
     conn.commit()
     conn.close()
+    # Now clear if in test mode
+    if DB_PATH.endswith('test_completed.db'):
+        clear_test_db()
 
 # --- Logging functions ---
-def log_download(model_id, model_version_id, filename, status, message=None, model_type=None, file_size=None, download_time=None):
+def log_download(model_id, model_version_id, filename, status, message=None, model_type=None, file_size=None, download_time=None, base_model=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     from datetime import datetime, timezone
-    c.execute('INSERT INTO downloads (timestamp, model_id, model_version_id, filename, model_type, status, message, file_size, download_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-              (datetime.now(timezone.utc).isoformat(), model_id, model_version_id, filename, model_type, status, message, file_size, download_time))
+    c.execute('INSERT INTO downloads (timestamp, model_id, model_version_id, filename, model_type, status, message, file_size, download_time, base_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              (datetime.now(timezone.utc).isoformat(), model_id, model_version_id, filename, model_type, status, message, file_size, download_time, base_model))
     conn.commit()
     conn.close()
 
@@ -102,6 +159,9 @@ def get_all_metrics():
             'downloads_per_day_type_status': downloads_per_day_type_status(),
             'file_size_stats_per_type': file_size_stats_per_type(),
             'download_time_stats_per_type': download_time_stats_per_type(),
+            'downloads_per_day_base_model_status': downloads_per_day_base_model_status(),
+            'file_size_stats_per_base_model': file_size_stats_per_base_model(),
+            'download_time_stats_per_base_model': download_time_stats_per_base_model(),
             'total_downloads': get_total_downloads(),
         }
     except Exception:
@@ -111,6 +171,9 @@ def get_all_metrics():
             'downloads_per_day_type_status': [],
             'file_size_stats_per_type': [],
             'download_time_stats_per_type': [],
+            'downloads_per_day_base_model_status': [],
+            'file_size_stats_per_base_model': [],
+            'download_time_stats_per_base_model': [],
             'total_downloads': 0,
         }
 

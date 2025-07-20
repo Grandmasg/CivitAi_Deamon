@@ -11,8 +11,8 @@ class DummyDaemon:
 class TestManifestParsing(unittest.TestCase):
     def test_manifest_parsing(self):
         manifest = [
-            {"modelId": "1", "modelVersionId": "101", "url": "url1", "filename": "f1", "sha256": "sha1", "priority": 1, "model_type": "checkpoint"},
-            {"modelId": "2", "modelVersionId": "202", "url": "url2", "filename": "f2", "model_type": "vae"}
+            {"modelId": "1", "modelVersionId": "101", "url": "url1", "filename": "f1", "sha256": "sha1", "priority": 1, "model_type": "checkpoint", "baseModel": "SD15"},
+            {"modelId": "2", "modelVersionId": "202", "url": "url2", "filename": "f2", "model_type": "vae", "baseModel": "SDXL"}
         ]
         with open('test_manifest.json', 'w') as f:
             json.dump(manifest, f)
@@ -21,13 +21,15 @@ class TestManifestParsing(unittest.TestCase):
         self.assertEqual(len(daemon.jobs), 2)
         self.assertEqual(daemon.jobs[0]['model_id'], '1')
         self.assertEqual(daemon.jobs[0]['model_version_id'], '101')
+        self.assertEqual(daemon.jobs[0]['base_model'], 'SD15')
         self.assertEqual(daemon.jobs[1]['filename'], 'f2')
         self.assertEqual(daemon.jobs[1]['model_type'], 'vae')
         self.assertEqual(daemon.jobs[1]['model_version_id'], '202')
+        self.assertEqual(daemon.jobs[1]['base_model'], 'SDXL')
 
     def test_manifest_validation(self):
         # Fout pad: ontbrekende velden
-        manifest = [{"modelId": "1", "modelVersionId": None, "model_type": "other"}]
+        manifest = [{"modelId": "1", "modelVersionId": None, "model_type": "other", "baseModel": None}]
         with open('test_manifest_invalid.json', 'w') as f:
             json.dump(manifest, f)
         daemon = DummyDaemon()
@@ -35,6 +37,7 @@ class TestManifestParsing(unittest.TestCase):
         self.assertEqual(daemon.jobs[0]['url'], None)
         self.assertEqual(daemon.jobs[0]['model_type'], 'other')
         self.assertIsNone(daemon.jobs[0]['model_version_id'])
+        self.assertIsNone(daemon.jobs[0]['base_model'])
 
 if __name__ == '__main__':
     unittest.main()

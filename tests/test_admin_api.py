@@ -1,16 +1,13 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import pytest
-from fastapi.testclient import TestClient
-
-
-# Use a temporary DB for all tests in this module
 import tempfile
 import importlib
 import shutil
-import os
+import pytest
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 tmp_db = tempfile.NamedTemporaryFile(delete=False)
 os.environ['CIVITAI_DAEMON_DB_PATH'] = tmp_db.name
 importlib.invalidate_caches()

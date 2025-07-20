@@ -1,3 +1,8 @@
+# uv lockfile
+uv.lock
+# Python package metadata
+*.egg-info/
+civitai_daemon.egg-info/
 # Test download directory
 test_download/
 # Ignore models directory and all its contents (root and data/)
