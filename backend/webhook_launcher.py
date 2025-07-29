@@ -1,7 +1,19 @@
-import json
+
+# --- Standaard imports altijd eerst ---
 import os
+import json
 import random
 import socket
+from loguru import logger
+
+# --- Loguru file logging setup (ook als webhook_launcher direct wordt geladen) ---
+log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'logs'))
+os.makedirs(log_dir, exist_ok=True)
+if not any([h._name == 'daemon.log' for h in logger._core.handlers.values()]):
+    logger.add(os.path.join(log_dir, "daemon.log"), rotation="5 MB", retention=5, encoding="utf-8", filter=lambda record: record["extra"].get("name", "") in ("civitai.download", "civitai.api"))
+
+# Bind logger for launcher logging
+log = logger.bind(name="civitai.api")
 
 CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
 WEBHOOK_PORT_RANGE = list(range(9000, 9101))

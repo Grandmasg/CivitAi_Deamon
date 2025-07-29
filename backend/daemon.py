@@ -5,7 +5,8 @@ import httpx
 import os
 import json
 import time
-from utils.logger import get_download_logger, get_error_logger
+from loguru import logger
+daemon_logger = logger.bind(name="civitai.download")
 from backend.database import log_download, log_error
 
 # --- Webhook sender (module-level, for test patching) ---
@@ -51,7 +52,7 @@ class WebSocketManager:
     async def abroadcast(self, event, data):
         import json
         msg = json.dumps({"event": event, "data": data})
-        print(f"[WebSocketManager.abroadcast] {msg}")  # Debug log
+        # print(f"[WebSocketManager.abroadcast] {msg}")  # Debug log verwijderd
         to_remove = []
         with self.lock:
             connections = list(self.connections)
@@ -91,6 +92,8 @@ def make_queue_item(model_id, url, filename, sha256=None, priority=None, model_t
         'base_model': base_model
     }
 
+from backend.database import is_already_downloaded
+
 class DownloadDaemon(threading.Thread):
     def __init__(self, max_retries=None, download_dir=None, throttle=None, timeout=None, workers=None):
         super().__init__(daemon=True)
@@ -113,39 +116,160 @@ class DownloadDaemon(threading.Thread):
         self.running = True
         self.paused = False
         self.cancel_current = False
-        self.logger = get_download_logger()
-        self.err_logger = get_error_logger()
+        self.logger = daemon_logger
+        self.err_logger = daemon_logger
+        # self._logged_downloads = set()  # Suppress duplicate log_download calls per (model_id, filename, status) -- redundant, suppressie nu via database
         # Note: self.workers is not yet used; for future multi-threaded support
         # TODO: log_level dynamisch uit config halen en logging aanpassen
+        self.active_downloads = []  # Lijst van actieve downloads
+        self.last_downloaded = self._load_last_downloaded()
+        self.all_downloaded = self._load_all_downloaded()
+        self.current_job = None  # Track the currently processing job
+
+    def _load_last_downloaded(self):
+        # Haal laatste 5 downloads uit database
+        import sqlite3
+        db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'completed.db'))
+        if not os.path.exists(db_path):
+            return []
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute('''SELECT model_id, model_version_id, filename, file_size, download_time, model_type, base_model FROM downloads WHERE status="success" ORDER BY timestamp DESC LIMIT 5''')
+        rows = c.fetchall()
+        conn.close()
+        result = []
+        for row in rows:
+            result.append({
+                'model_id': row[0],
+                'model_version_id': row[1],
+                'filename': row[2],
+                'file_size': row[3],
+                'download_time': row[4],
+                'model_type': row[5],
+                'base_model': row[6]
+            })
+        return result
+    def _load_all_downloaded(self):
+        # Haal alle succesvolle downloads uit database
+        import sqlite3
+        db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'completed.db'))
+        if not os.path.exists(db_path):
+            return []
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute('''SELECT model_id, model_version_id, filename, file_size, download_time, model_type, base_model FROM downloads WHERE status="success" ORDER BY timestamp DESC''')
+        rows = c.fetchall()
+        conn.close()
+        result = []
+        for row in rows:
+            result.append({
+                'model_id': row[0],
+                'model_version_id': row[1],
+                'filename': row[2],
+                'file_size': row[3],
+                'download_time': row[4],
+                'model_type': row[5],
+                'base_model': row[6]
+            })
+        return result
     def pause(self):
         self.paused = True
+        self.logger.info("Daemon paused")
         ws_manager.broadcast('daemon_paused', {})
+        send_webhook('daemon_paused', {})
+        log_download('system', None, '-', 'paused', message='Daemon paused')
 
     def resume(self):
         self.paused = False
+        self.logger.info("Daemon resumed")
         ws_manager.broadcast('daemon_resumed', {})
+        send_webhook('daemon_resumed', {})
+        log_download('system', None, '-', 'resumed', message='Daemon resumed')
 
     def cancel(self):
         self.cancel_current = True
+        self.logger.info("Download cancel requested")
         ws_manager.broadcast('download_cancel_requested', {})
-        self.logger = get_download_logger()
-        self.err_logger = get_error_logger()
+        send_webhook('download_cancel_requested', {})
+        log_download('system', None, '-', 'cancel_requested', message='Download cancel requested')
+        self.logger = logger.bind(name="civitai.download")
+        self.err_logger = logger.bind(name="civitai.error")
 
-    def add_job(self, item):
-        # Lower priority value = higher priority
+
+    def add_job(self, item, skipped=False, reason=None):
+        # Universele skip-detectie: check altijd of al gedownload
+        if not skipped and is_already_downloaded(item.get('model_id'), item.get('model_version_id')):
+            skipped = True
+            reason = "already downloaded"
+        if skipped:
+            msg = f"Download skipped: {item['filename']} (model_id={item['model_id']})"
+            if reason:
+                msg += f" | Reason: {reason}"
+            self.logger.info(msg)
+            ws_manager.broadcast('download_skipped', {'model_id': item['model_id'], 'filename': item['filename'], 'reason': reason})
+            send_webhook('download_skipped', {'model_id': item['model_id'], 'filename': item['filename'], 'reason': reason})
+            log_download(
+                item['model_id'],
+                item.get('model_version_id'),
+                item['filename'],
+                'skipped',
+                message=reason or 'skipped',
+                model_type=item.get('model_type'),
+                file_size=0,
+                download_time=0,
+                base_model=item.get('base_model')
+            )
+            return
         self.queue.put((item['priority'], time.time(), item))
+        # Stuur direct een 'in_queue' event per model
+        ws_manager.broadcast('in_queue', {'model_id': item['model_id'], 'filename': item['filename']})
         ws_manager.broadcast('queue_update', {'queued': self.queue.qsize()})
 
     def run(self):
-        while self.running:
-            if self.paused:
-                time.sleep(0.5)
-                continue
-            try:
-                _, _, item = self.queue.get(timeout=1)
-            except queue.Empty:
-                continue
-            self.process_item(item)
+        self.logger.info("Daemon thread started")
+        send_webhook('daemon_started', {})
+        queue_was_empty = False
+        try:
+            while self.running:
+                if self.paused:
+                    time.sleep(0.5)
+                    continue
+                try:
+                    # Remove and get the first item from the queue (active job is NOT in the queue)
+                    priority, ts, item = self.queue.get(timeout=1)
+                    if queue_was_empty:
+                        queue_was_empty = False
+                except queue.Empty:
+                    if not queue_was_empty:
+                        self.logger.info("Queue is empty, waiting for new jobs...")
+                        queue_was_empty = True
+                    ws_manager.broadcast('queue_empty', {})
+                    self.current_job = None
+                    time.sleep(1)
+                    continue
+                try:
+                    self.current_job = item
+                    self.process_item(item)
+                    self.current_job = None
+                except Exception as e:
+                    import traceback
+                    tb = traceback.format_exc()
+                    self.err_logger.error(f"Exception in process_item: {e}\n{tb}")
+                    log_error(item.get('model_id', 'unknown'), item.get('filename', '-'), f"Exception in process_item: {e}\n{tb}")
+                    ws_manager.broadcast('process_item_error', {'model_id': item.get('model_id'), 'filename': item.get('filename'), 'error': str(e)})
+                    send_webhook('process_item_error', {'model_id': item.get('model_id'), 'filename': item.get('filename'), 'error': str(e)})
+                    self.current_job = None
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            self.err_logger.error(f"Daemon thread crashed: {e}\n{tb}")
+            log_error('system', '-', f"Daemon thread crashed: {e}\n{tb}")
+            send_webhook('daemon_crashed', {'error': str(e)})
+        finally:
+            self.current_job = None
+            self.logger.warning("Daemon thread stopped")
+            send_webhook('daemon_stopped', {})
+            # log_download('system', None, '-', 'stopped', message='Daemon thread stopped')
 
     def send_webhook(event, data):
         try:
@@ -163,109 +287,152 @@ class DownloadDaemon(threading.Thread):
             pass
 
     def process_item(self, item):
+        self.logger.info(f"Starting download: {item['filename']} (model_id={item['model_id']}, url={item.get('url')})")
         ws_manager.broadcast('download_start', {'model_id': item['model_id'], 'filename': item['filename']})
         send_webhook('download_start', {'model_id': item['model_id'], 'filename': item['filename']})
-        for attempt in range(self.max_retries):
-            try:
-                self.cancel_current = False
-                t0 = time.time()
-                success, filepath = self._download_file(item)
-                t1 = time.time()
-                download_time = round(t1 - t0, 3)
-                file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
-                if success:
-                    if item.get('sha256'):
-                        ws_manager.broadcast('hash_start', {'filename': item['filename']})
-                        # Custom SHA256 mismatch logging
-                        actual_hash = None
-                        hash_mismatch = False
-                        with open(filepath, 'rb') as f:
-                            sha256 = hashlib.sha256()
-                            while True:
-                                chunk = f.read(1024*1024)
-                                if not chunk:
-                                    break
-                                sha256.update(chunk)
-                            actual_hash = sha256.hexdigest().lower()
-                        expected_hash = str(item['sha256']).lower()
-                        if actual_hash != expected_hash:
-                            hash_mismatch = True
-                            msg = (f"SHA256 mismatch for {item['filename']}\n"
-                                   f"Expected: {expected_hash}\n"
-                                   f"Actual:   {actual_hash}")
-                            self.err_logger.error(msg)
-                            log_error(item['model_id'], item['filename'], msg)
-                            raise ValueError('SHA256 mismatch')
-                    log_download(
-                        item['model_id'],
-                        item.get('model_version_id'),
-                        item['filename'],
-                        f'success',
-                        message=f'success ({file_size} bytes, UA=CivitaiDaemon)',
-                        model_type=item.get('model_type'),
-                        file_size=file_size,
-                        download_time=download_time,
-                        base_model=item.get('base_model')
-                    )
-                    ws_manager.broadcast('download_finished', {
-                        'model_id': item['model_id'],
-                        'filename': item['filename'],
-                        'file_size': file_size,
-                        'download_time': download_time
-                    })
-                    send_webhook('download_finished', {
-                        'model_id': item['model_id'],
-                        'filename': item['filename'],
-                        'file_size': file_size,
-                        'download_time': download_time
-                    })
-                    if self.throttle > 0:
-                        time.sleep(self.throttle)
-                    return True
-                else:
-                    # Log fail/cancel met juiste status
-                    log_download(
-                        item['model_id'],
-                        item.get('model_version_id'),
-                        item['filename'],
-                        'failed',
-                        message='Download failed',
-                        model_type=item.get('model_type'),
-                        file_size=file_size,
-                        download_time=download_time,
-                        base_model=item.get('base_model')
-                    )
-                    raise Exception('Download failed')
-            except Exception as e:
-                import traceback
-                tb = traceback.format_exc()
-                self.err_logger.error(f"Download failed: {item['filename']} (url: {item.get('url')}) ({e})\nTraceback:\n{tb}")
-                log_error(item['model_id'], item['filename'], f"{e}\nURL: {item.get('url')}\nTraceback:\n{tb}")
-                ws_manager.broadcast('download_error', {'model_id': item['model_id'], 'filename': item['filename'], 'error': str(e)})
-                send_webhook('download_error', {'model_id': item['model_id'], 'filename': item['filename'], 'error': str(e)})
-                # Cleanup incomplete file
-                filepath = os.path.join(self.download_dir, item['filename'])
-                if os.path.exists(filepath):
-                    try:
-                        os.remove(filepath)
-                    except Exception:
-                        pass
-                item['retries'] += 1
-                if item['retries'] < self.max_retries:
-                    time.sleep(2)
-                else:
-                    self.err_logger.error(f"Max retries reached for: {item['filename']}")
-                    ws_manager.broadcast('download_failed', {
-                        'model_id': item['model_id'],
-                        'filename': item['filename'],
-                        'error': f'Max retries ({self.max_retries}) reached.'
-                    })
-                    send_webhook('download_failed', {
-                        'model_id': item['model_id'],
-                        'filename': item['filename'],
-                        'error': f'Max retries ({self.max_retries}) reached.'
-                    })
-                    return False
+        # Voeg toe aan actieve downloads
+        self.active_downloads.append(item)
+        try:
+            for attempt in range(self.max_retries):
+                try:
+                    self.logger.info(f"Attempt {attempt+1}/{self.max_retries} for {item['filename']}")
+                    self.cancel_current = False
+                    t0 = time.time()
+                    success, filepath = self._download_file(item)
+                    t1 = time.time()
+                    download_time = round(t1 - t0, 3)
+                    file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
+                    if success:
+                        self.logger.success(f"Download finished: {item['filename']} ({file_size} bytes, {download_time}s)")
+                        if item.get('sha256'):
+                            ws_manager.broadcast('hash_start', {
+                                'filename': item['filename'],
+                                'model_id': item['model_id'],
+                                'model_version_id': item.get('model_version_id')
+                            })
+                            self.logger.info(f"Verifying SHA256 for {item['filename']}")
+                            expected_hash = str(item['sha256']).lower()
+                            result = self.verify_hash(filepath, expected_hash, item.get('model_id'), item.get('model_version_id'))
+                            actual_hash = None
+                            with open(filepath, 'rb') as f:
+                                sha256 = hashlib.sha256()
+                                while True:
+                                    chunk = f.read(1024*1024)
+                                    if not chunk:
+                                        break
+                                    sha256.update(chunk)
+                                actual_hash = sha256.hexdigest().lower()
+                            if not result:
+                                msg = (f"SHA256 mismatch for {item['filename']}\n"
+                                       f"Expected: {expected_hash}\n"
+                                       f"Actual:   {actual_hash}")
+                                self.err_logger.error(msg)
+                                log_error(item['model_id'], item['filename'], msg)
+                                raise ValueError('SHA256 mismatch')
+                            else:
+                                self.logger.success(f"SHA256 verified for {item['filename']}")
+                                ws_manager.broadcast('hash_finished', {
+                                    'filename': item['filename'],
+                                    'model_id': item['model_id'],
+                                    'model_version_id': item.get('model_version_id'),
+                                    'sha256': actual_hash
+                                })
+                        log_download(
+                            item['model_id'],
+                            item.get('model_version_id'),
+                            item['filename'],
+                            f'success',
+                            message=f'success ({file_size} bytes, UA=CivitaiDaemon)',
+                            model_type=item.get('model_type'),
+                            file_size=file_size,
+                            download_time=download_time,
+                            base_model=item.get('base_model')
+                        )
+                        ws_manager.broadcast('download_finished', {
+                            'model_id': item['model_id'],
+                            'filename': item['filename'],
+                            'file_size': file_size,
+                            'download_time': download_time
+                        })
+                        send_webhook('download_finished', {
+                            'model_id': item['model_id'],
+                            'filename': item['filename'],
+                            'file_size': file_size,
+                            'download_time': download_time
+                        })
+                        # Voeg toe aan laatste downloads (max 5)
+                        self.last_downloaded.insert(0, {
+                            'model_id': item['model_id'],
+                            'filename': item['filename'],
+                            'file_size': file_size,
+                            'download_time': download_time,
+                            'model_type': item.get('model_type'),
+                            'model_version_id': item.get('model_version_id'),
+                            'base_model': item.get('base_model')
+                        })
+                        if len(self.last_downloaded) > 5:
+                            self.last_downloaded = self.last_downloaded[:5]
+                        # Voeg toe aan all_downloaded
+                        self.all_downloaded.insert(0, {
+                            'model_id': item['model_id'],
+                            'model_version_id': item.get('model_version_id'),
+                            'filename': item['filename'],
+                            'file_size': file_size,
+                            'download_time': download_time,
+                            'model_type': item.get('model_type'),
+                            'base_model': item.get('base_model')
+                        })
+                        return True
+                    else:
+                        self.err_logger.warning(f"Download failed for {item['filename']} (no exception, returned False)")
+                        log_download(
+                            item['model_id'],
+                            item.get('model_version_id'),
+                            item['filename'],
+                            'failed',
+                            message='Download failed',
+                            model_type=item.get('model_type'),
+                            file_size=file_size,
+                            download_time=download_time,
+                            base_model=item.get('base_model')
+                        )
+                        raise Exception('Download failed')
+                except Exception as e:
+                    import traceback
+                    tb = traceback.format_exc()
+                    self.err_logger.error(f"Download failed: {item['filename']} (url: {item.get('url')}) ({e})\nTraceback:\n{tb}")
+                    log_error(item['model_id'], item['filename'], f"{e}\nURL: {item.get('url')}\nTraceback:\n{tb}")
+                    ws_manager.broadcast('download_error', {'model_id': item['model_id'], 'filename': item['filename'], 'error': str(e)})
+                    send_webhook('download_error', {'model_id': item['model_id'], 'filename': item['filename'], 'error': str(e)})
+                    # Cleanup incomplete file
+                    filepath = os.path.join(self.download_dir, item['filename'])
+                    if os.path.exists(filepath):
+                        try:
+                            os.remove(filepath)
+                            self.logger.info(f"Removed incomplete file: {filepath}")
+                        except Exception as cleanup_err:
+                            self.err_logger.warning(f"Failed to remove incomplete file {filepath}: {cleanup_err}")
+                    item['retries'] += 1
+                    if item['retries'] < self.max_retries:
+                        self.logger.warning(f"Retrying {item['filename']} (retry {item['retries']}/{self.max_retries}) after 2s...")
+                        time.sleep(2)
+                    else:
+                        self.err_logger.error(f"Max retries reached for: {item['filename']}")
+                        ws_manager.broadcast('download_failed', {
+                            'model_id': item['model_id'],
+                            'filename': item['filename'],
+                            'error': f'Max retries ({self.max_retries}) reached.'
+                        })
+                        send_webhook('download_failed', {
+                            'model_id': item['model_id'],
+                            'filename': item['filename'],
+                            'error': f'Max retries ({self.max_retries}) reached.'
+                        })
+                        return False
+        finally:
+            # Verwijder uit actieve downloads
+            if item in self.active_downloads:
+                self.active_downloads.remove(item)
 
     def _download_file(self, item):
         """Download logic, returns (True, filepath) on success, (False, filepath) on failure/cancel."""
@@ -325,7 +492,7 @@ class DownloadDaemon(threading.Thread):
                         now = time.time()
                         # Only send progress every 0.2s, but always send 100% at the end
                         if total > 0:
-                            progress = int(100 * downloaded / total)
+                            progress = round(100 * downloaded / total, 1)
                             if (now - last_progress_sent > 0.2) or (downloaded == total):
                                 ws_manager.broadcast('download_progress', {
                                     'model_id': item['model_id'],
@@ -359,8 +526,13 @@ class DownloadDaemon(threading.Thread):
             self.err_logger.error(f"Exception during download for {item.get('url')}: {e}")
             return False, filepath
 
-    def verify_hash(self, filepath, expected_sha256):
-        ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': 0})
+    def verify_hash(self, filepath, expected_sha256, model_id=None, model_version_id=None):
+        hash_event = {'filename': os.path.basename(filepath), 'progress': 0}
+        if model_id is not None:
+            hash_event['model_id'] = model_id
+        if model_version_id is not None:
+            hash_event['model_version_id'] = model_version_id
+        ws_manager.broadcast('hash_progress', hash_event)
         sha256 = hashlib.sha256()
         total = os.path.getsize(filepath)
         last_progress_sent = 0
@@ -373,13 +545,23 @@ class DownloadDaemon(threading.Thread):
                 sha256.update(chunk)
                 read += len(chunk)
                 now = time.time()
-                progress = int(100*read/total)
+                progress = round(100*read/total, 1)
+                hash_event = {'filename': os.path.basename(filepath), 'progress': progress}
+                if model_id is not None:
+                    hash_event['model_id'] = model_id
+                if model_version_id is not None:
+                    hash_event['model_version_id'] = model_version_id
                 if (now - last_progress_sent > 0.2) or (read == total):
-                    ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': progress})
+                    ws_manager.broadcast('hash_progress', hash_event)
                     last_progress_sent = now
         # Always send 100% at the end if not already sent
         if read == total:
-            ws_manager.broadcast('hash_progress', {'filename': os.path.basename(filepath), 'progress': 100})
+            hash_event = {'filename': os.path.basename(filepath), 'progress': 100.0}
+            if model_id is not None:
+                hash_event['model_id'] = model_id
+            if model_version_id is not None:
+                hash_event['model_version_id'] = model_version_id
+            ws_manager.broadcast('hash_progress', hash_event)
         # Compare hashes in lowercase to avoid case sensitivity issues
         result = sha256.hexdigest().lower() == str(expected_sha256).lower()
         return result
@@ -403,6 +585,7 @@ def process_manifest(manifest_path, daemon):
             base_model=entry.get('baseModel')
         )
         daemon.add_job(item)
+    daemon.logger.info(f"Batch manifest queued: {len(manifest)} items from {manifest_path}")
     ws_manager.broadcast('batch_queued', {'count': len(manifest)})
 
 # Example usage:

@@ -1,4 +1,3 @@
-
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -14,6 +13,13 @@ import os
 
 app.dependency_overrides[get_current_user] = lambda: {"user": "test", "role": "admin"}
 client = TestClient(app)
+
+from loguru import logger
+
+# Loguru test log setup
+_test_log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+os.makedirs(_test_log_dir, exist_ok=True)
+logger.add(os.path.join(_test_log_dir, "test.log"), rotation="1 MB", retention=3, encoding="utf-8")
 
 def test_full_download_flow(monkeypatch):
     # Use a temp dir for downloads

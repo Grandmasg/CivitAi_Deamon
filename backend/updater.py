@@ -1,9 +1,17 @@
+
+# --- Standaard imports altijd eerst ---
+import os
 import time
 import httpx
 import json
 import threading
-from utils.logger import get_download_logger, get_error_logger
-# from backend.database import log_download
+from loguru import logger
+
+# --- Loguru file logging setup (ook als updater direct wordt geladen) ---
+log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'logs'))
+os.makedirs(log_dir, exist_ok=True)
+if not any([h._name == 'update.log' for h in logger._core.handlers.values()]):
+    logger.add(os.path.join(log_dir, "update.log"), rotation="2 MB", retention=5, encoding="utf-8", filter=lambda record: record["extra"].get("name", "") == "civitai.updater")
 
 class ModelUpdater(threading.Thread):
     def __init__(self, manifest_path, interval=86400):
@@ -11,8 +19,8 @@ class ModelUpdater(threading.Thread):
         self.manifest_path = manifest_path
         self.interval = interval  # seconds (default: 1 day)
         self.running = True
-        self.logger = get_download_logger()
-        self.err_logger = get_error_logger()
+        self.logger = logger.bind(name="civitai.updater")
+        self.err_logger = logger.bind(name="civitai.updater")
 
     def run(self):
         while self.running:

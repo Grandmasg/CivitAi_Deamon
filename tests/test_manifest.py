@@ -1,6 +1,13 @@
 import unittest
 import json
 from backend.daemon import process_manifest, make_queue_item
+from loguru import logger
+import os
+
+# Loguru test log setup
+_test_log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+os.makedirs(_test_log_dir, exist_ok=True)
+logger.add(os.path.join(_test_log_dir, "test.log"), rotation="1 MB", retention=3, encoding="utf-8")
 
 class DummyDaemon:
     def __init__(self):

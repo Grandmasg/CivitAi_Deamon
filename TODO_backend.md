@@ -129,6 +129,15 @@
 
 ---
 
+## Multi-worker/Parallel Downloads (TODO)
+
+- [ ] Implementeer echte multi-worker/parallelle downloads in daemon.py
+  - De instelling 'workers' in config.json wordt nu genegeerd; er draait altijd maar 1 download tegelijk
+  - Voeg threading of asyncio toe zodat meerdere downloads tegelijk verwerkt kunnen worden
+  - Pas queue/active_downloads en status aan zodat dit correct zichtbaar is in de GUI
+
+---
+
 ## Webhook Testing & Development (TODO)
 
 - [ ] Create a simple webhook listener for local testing (e.g. FastAPI or Flask app on port 9000)

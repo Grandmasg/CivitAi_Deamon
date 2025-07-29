@@ -1,16 +1,41 @@
-import json
+
+# --- Standaard imports altijd eerst ---
 import os
+import json
 import signal
 import socket
 import subprocess
 import sys
 from fastapi import FastAPI, Request
 import uvicorn
+from loguru import logger
+
+# --- Loguru file logging setup (ook als webhook_server direct wordt geladen) ---
+log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'logs'))
+os.makedirs(log_dir, exist_ok=True)
+# Verwijder alle bestaande handlers om dubbele logging te voorkomen
+logger.remove()
+logger.add(os.path.join(log_dir, "daemon.log"), rotation="5 MB", retention=5, encoding="utf-8", filter=lambda record: record["extra"].get("name", "") in ("civitai.download", "civitai.api"))
+
+# Bind logger for webhook logging
+log = logger.bind(name="civitai.api")
 
 CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
 WEBHOOK_PATH = '/webhook'
 
+
 app = FastAPI()
+
+# Log every request via middleware (universeel, net als in main.py)
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+class LogRequestsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        log.info(f"Request: {request.method} {request.url.path}")
+        response = await call_next(request)
+        log.info(f"Response: {request.method} {request.url.path} {response.status_code}")
+        return response
+app.add_middleware(LogRequestsMiddleware)
 
 @app.post(WEBHOOK_PATH)
 async def webhook_endpoint(request: Request):

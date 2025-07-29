@@ -2,6 +2,7 @@ import os
 import sys
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -13,6 +14,11 @@ get_current_user = main.get_current_user
 # Patch authentication for tests: always return a test user
 app.dependency_overrides[get_current_user] = lambda: {"user": "test", "role": "admin"}
 client = TestClient(app)
+
+# Loguru test log setup
+_test_log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+os.makedirs(_test_log_dir, exist_ok=True)
+logger.add(os.path.join(_test_log_dir, "test.log"), rotation="1 MB", retention=3, encoding="utf-8")
 
 def test_status():
     response = client.get("/api/status", headers={"Authorization": "Bearer testtoken"})

@@ -1,6 +1,12 @@
 import unittest
 import os
 from backend.database import log_download, log_error, downloads_per_day
+from loguru import logger
+
+# Loguru test log setup
+_test_log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+os.makedirs(_test_log_dir, exist_ok=True)
+logger.add(os.path.join(_test_log_dir, "test.log"), rotation="1 MB", retention=3, encoding="utf-8")
 
 class TestDatabaseLogging(unittest.TestCase):
     def test_base_model_metrics(self):

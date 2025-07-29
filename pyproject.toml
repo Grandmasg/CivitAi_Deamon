@@ -21,7 +21,8 @@ dependencies = [
   "pip",
   "ipykernel",
   "websockets>=15.0",
-  "pytest"
+  "pytest",
+  "loguru"
 ]
 
 [tool.setuptools.packages.find]
