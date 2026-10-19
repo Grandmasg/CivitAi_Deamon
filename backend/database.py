@@ -23,7 +23,12 @@ os.makedirs(data_dir, exist_ok=True)
 if "pytest" in sys.modules or os.environ.get("CIVITAI_TEST_AUTH") == "1":
     DB_PATH = os.path.join(data_dir, 'test_completed.db')
 else:
-    DB_PATH = os.environ.get('CIVITAI_DAEMON_DB_PATH', os.path.join(data_dir, 'completed.db'))
+    # As an SD.Sage plugin, keep the database in the folder the gateway gives us.
+    _plugin_data = os.environ.get('SDSAGE_PLUGIN_DATA')
+    DB_PATH = os.environ.get(
+        'CIVITAI_DAEMON_DB_PATH',
+        os.path.join(_plugin_data, 'completed.db') if _plugin_data else os.path.join(data_dir, 'completed.db'),
+    )
 
 
 # --- Database initialization ---

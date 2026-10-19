@@ -8,6 +8,7 @@ import time
 from loguru import logger
 daemon_logger = logger.bind(name="civitai.download")
 from backend.database import log_download, log_error
+from backend import sdsage
 
 # --- Webhook sender (module-level, for test patching) ---
 def send_webhook(event, data):
@@ -360,6 +361,16 @@ class DownloadDaemon(threading.Thread):
                             'file_size': file_size,
                             'download_time': download_time
                         })
+                        if sdsage.ENABLED:
+                            from pathlib import Path
+                            sdsage.write_civitai_info(Path(filepath), item.get('civitai_info'))
+                            sdsage.notify('model.added', {
+                                'model_id': item['model_id'],
+                                'model_version_id': item.get('model_version_id'),
+                                'filename': item['filename'],
+                                'model_type': item.get('model_type'),
+                                'path': filepath,
+                            })
                         # Voeg toe aan laatste downloads (max 5)
                         self.last_downloaded.insert(0, {
                             'model_id': item['model_id'],
@@ -438,9 +449,15 @@ class DownloadDaemon(threading.Thread):
         """Download logic, returns (True, filepath) on success, (False, filepath) on failure/cancel."""
         self.logger.info(f"Start download: {item['filename']}")
         model_type = item.get('model_type', 'other')
-        subdir = os.path.join('data', 'models', model_type)
-        os.makedirs(subdir, exist_ok=True)
-        filepath = os.path.join(subdir, item['filename'])
+        if sdsage.ENABLED:
+            # Into SD.Sage's shared model folder, by type and base model, with safe names
+            # and never over an existing file.
+            filepath = str(sdsage.target_path(model_type, item['filename'], item.get('base_model')))
+        else:
+            subdir = os.path.join('data', 'models', model_type)
+            os.makedirs(subdir, exist_ok=True)
+            filepath = os.path.join(subdir, item['filename'])
+        item['path'] = filepath
         # Cleanup incomplete file if exists
         if os.path.exists(filepath):
             try:
@@ -454,6 +471,7 @@ class DownloadDaemon(threading.Thread):
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
                 api_key = config.get('civitai_api_key')
+        api_key = os.environ.get('CIVITAI_API_KEY') or api_key
         headers = {'User-Agent': f'CivitaiDaemon/1.0 (Python httpx)'}
         if api_key:
             headers['Authorization'] = f'Bearer {api_key}'
@@ -491,6 +509,9 @@ class DownloadDaemon(threading.Thread):
                         downloaded += len(chunk)
                         now = time.time()
                         # Only send progress every 0.2s, but always send 100% at the end
+                        # Kept on the item so the status endpoint can report progress without WebSockets.
+                        item['downloaded'] = downloaded
+                        item['total'] = total or None
                         if total > 0:
                             progress = round(100 * downloaded / total, 1)
                             if (now - last_progress_sent > 0.2) or (downloaded == total):

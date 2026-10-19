@@ -60,6 +60,22 @@ This application automates downloads and updates of models via Civitai, featurin
    python backend/launch.py
    ```
 
+## Running as an SD.Sage plugin
+
+The daemon can run as a plugin of [SD.Sage](https://github.com/Grandmasg/SD.Sage). SD.Sage then starts it, handles logins, and passes these environment variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `SDSAGE_PLUGIN_TOKEN` | Shared secret. Turns on plugin mode: every request must carry `Authorization: Bearer <token>`; the user comes from `X-SDSage-User` and `X-SDSage-Role`. `/token` is switched off. |
+| `SDSAGE_MODELS_DIR` | Downloads go here by type and base model, e.g. `Lora/SDXL 1.0/name.safetensors`, with a `.civitai.info` next to them. Names are sanitised and an existing file is never overwritten. |
+| `SDSAGE_GATEWAY_URL` | After each download the daemon reports `model.added` to `POST /api/plugin/events`. |
+| `SDSAGE_PLUGIN_DATA` | Folder for the download database (`completed.db`). |
+| `CIVITAI_API_KEY` | Optional; overrides `civitai_api_key` from `configs/config.json`. |
+
+Extra endpoints in plugin mode: `GET /health`, `GET /api/sdsage/downloads` (active, queued and recent downloads) and `POST /api/download_civitai` with `{"ref": "<civitai link, version link or model id>"}` (admins only).
+
+Start it through SD.Sage's plugin manifest; see `plugins/civitai-daemon.example.toml` in the SD.Sage repository. Without `SDSAGE_PLUGIN_TOKEN` the daemon runs standalone as before.
+
 ## Dependency Management
 
 All dependencies (including test tools like `pytest`) are specified in `pyproject.toml`:

@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from backend.daemon import make_queue_item, DownloadDaemon, ws_manager
 from backend.database import get_all_metrics, log_download, log_error
+from backend import sdsage
 from loguru import logger
 
 # App instance and universal logging middleware (after app creation)
@@ -73,7 +74,8 @@ app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 SECRET_KEY = load_secret_key()
-print('Backend loaded SECRET_KEY:', SECRET_KEY)
+if not sdsage.ENABLED:
+    print('Backend loaded SECRET_KEY:', SECRET_KEY)
 ALGORITHM = "HS256"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
@@ -106,7 +108,15 @@ async def lifespan(app: FastAPI):
 
 
 # --- Auth dependency must be defined before any endpoint uses it ---
-def get_current_user(token: str = Depends(oauth2_scheme), require_admin: bool = False):
+def get_current_user(request: Request, token: str = Depends(oauth2_scheme), require_admin: bool = False):
+    # As an SD.Sage plugin, only the gateway may call us: it sends its token and the user.
+    if sdsage.ENABLED:
+        if not sdsage.check_token(token):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid plugin token")
+        role = request.headers.get("x-sdsage-role", "user")
+        if require_admin and role != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+        return {"user": request.headers.get("x-sdsage-user", "sdsage"), "role": role}
     # Allow testtoken if test auth is enabled
     if os.environ.get("CIVITAI_TEST_AUTH") == "1" and token == "testtoken":
         return {"user": "test", "role": "admin"}
@@ -254,9 +264,79 @@ def api_stop(user=Depends(get_current_user)):
     return {"status": "stopped"}
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok", "plugin": sdsage.ENABLED}
+
+
+def _public(item: dict) -> dict:
+    """A queue item without internal fields (hooks, raw CivitAI data)."""
+    keys = ("model_id", "model_version_id", "filename", "model_type", "base_model", "name", "downloaded", "total", "path")
+    return {k: item.get(k) for k in keys if k in item}
+
+
+@app.get("/api/sdsage/downloads")
+def sdsage_downloads(user: dict = Depends(get_current_user)):
+    """Active, queued and recent downloads in one call, for SD.Sage's UI."""
+    queued = []
+    for entry in list(daemon_instance.queue.queue):
+        item = entry[2] if isinstance(entry, tuple) and len(entry) == 3 else entry
+        if isinstance(item, dict):
+            queued.append(_public(item))
+    return {
+        "active": [_public(i) for i in list(daemon_instance.active_downloads)],
+        "queued": queued,
+        "recent": list(daemon_instance.last_downloaded)[:10],
+        "paused": daemon_instance.paused,
+    }
+
+
+@app.post("/api/download_civitai")
+async def download_civitai(request: Request, user: dict = Depends(get_current_user)):
+    """Queue a download from a CivitAI link, AIR or model id. Admins only."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    data = await request.json()
+    ref = str(data.get("ref", "")).strip()
+    if not ref:
+        raise HTTPException(status_code=422, detail="ref is required")
+    config_key = None
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
+    if os.path.exists(config_path):
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_key = json.load(f).get('civitai_api_key')
+    try:
+        found = await asyncio.to_thread(sdsage.resolve_civitai, ref, os.environ.get('CIVITAI_API_KEY') or config_key)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"CivitAI answered {e.response.status_code}")
+    from backend.database import is_already_downloaded
+    if is_already_downloaded(found['model_id'], found['model_version_id']):
+        return {"status": "already downloaded", "name": found['name']}
+    item = make_queue_item(
+        model_id=found['model_id'],
+        url=found['url'],
+        filename=found['filename'],
+        sha256=found['sha256'],
+        priority=1,
+        model_type=found['model_type'],
+        model_version_id=found['model_version_id'],
+        base_model=found['base_model'],
+    )
+    item['name'] = found['name']
+    item['civitai_info'] = found['civitai_info']
+    daemon_instance.add_job(item)
+    log.info(f"{user['user']} queued {found['name']} ({found['filename']})")
+    return {"status": "queued", "item": _public(item)}
+
+
 @app.post("/token")
 async def login(request: Request):
-    # Accepts username and optional role (default: user), returns JWT
+    # Accepts username and optional role (default: user), returns JWT.
+    # Off as an SD.Sage plugin: there the gateway handles logins.
+    if sdsage.ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
     data = await request.json()
     username = data.get("username", "user")
     role = data.get("role", "user")
