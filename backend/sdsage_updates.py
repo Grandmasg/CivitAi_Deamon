@@ -38,11 +38,33 @@ def _cache_path() -> Path:
     return base / "updates.json"
 
 
+def _ignored_path() -> Path:
+    return _cache_path().with_name("updates_ignored.json")
+
+
+def ignored() -> set[int]:
+    try:
+        return set(json.loads(_ignored_path().read_text(encoding="utf-8")))
+    except Exception:
+        return set()
+
+
+def set_ignored(model_id: int, ignore: bool) -> None:
+    """Hide (or show again) updates for one model, e.g. collections whose
+    "versions" are really different files."""
+    ids = ignored()
+    (ids.add if ignore else ids.discard)(int(model_id))
+    _ignored_path().write_text(json.dumps(sorted(ids)), encoding="utf-8")
+
+
 def load() -> dict:
     try:
         data = json.loads(_cache_path().read_text(encoding="utf-8"))
     except Exception:
         data = {"checked_at": None, "items": [], "scanned": 0, "error": None}
+    hidden = ignored()
+    data["items"] = [i for i in data.get("items", []) if i["model_id"] not in hidden]
+    data["ignored"] = len(hidden)
     data["running"] = _running
     return data
 

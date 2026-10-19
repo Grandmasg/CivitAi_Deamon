@@ -324,6 +324,21 @@ def sdsage_updates_check(user: dict = Depends(get_current_user)):
     return {"status": "started"}
 
 
+@app.post("/api/sdsage/updates/ignore")
+async def sdsage_updates_ignore(request: Request, user: dict = Depends(get_current_user)):
+    """Stop (or resume) reporting updates for a model. Admins only."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    data = await request.json()
+    try:
+        model_id = int(data.get("model_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="model_id is required")
+    from backend import sdsage_updates
+    sdsage_updates.set_ignored(model_id, bool(data.get("ignore", True)))
+    return {"status": "ok"}
+
+
 @app.post("/api/download_civitai")
 async def download_civitai(request: Request, user: dict = Depends(get_current_user)):
     """Queue a download from a CivitAI link, AIR or model id. Admins only."""
