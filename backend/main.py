@@ -291,6 +291,39 @@ def sdsage_downloads(user: dict = Depends(get_current_user)):
     }
 
 
+def civitai_api_key():
+    """CIVITAI_API_KEY from the environment, else civitai_api_key from configs/config.json."""
+    if os.environ.get('CIVITAI_API_KEY'):
+        return os.environ['CIVITAI_API_KEY']
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
+    if os.path.exists(config_path):
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f).get('civitai_api_key')
+    return None
+
+
+if sdsage.ENABLED:
+    from backend import sdsage_updates
+    sdsage_updates.start_schedule(civitai_api_key)
+
+
+@app.get("/api/sdsage/updates")
+def sdsage_updates_list(user: dict = Depends(get_current_user)):
+    """Newer versions on CivitAI for models in the folder (last check)."""
+    from backend import sdsage_updates
+    return sdsage_updates.load()
+
+
+@app.post("/api/sdsage/updates/check")
+def sdsage_updates_check(user: dict = Depends(get_current_user)):
+    """Start an update check now. Admins only."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    from backend import sdsage_updates
+    sdsage_updates.check_in_background(civitai_api_key())
+    return {"status": "started"}
+
+
 @app.post("/api/download_civitai")
 async def download_civitai(request: Request, user: dict = Depends(get_current_user)):
     """Queue a download from a CivitAI link, AIR or model id. Admins only."""
@@ -300,13 +333,8 @@ async def download_civitai(request: Request, user: dict = Depends(get_current_us
     ref = str(data.get("ref", "")).strip()
     if not ref:
         raise HTTPException(status_code=422, detail="ref is required")
-    config_key = None
-    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.json'))
-    if os.path.exists(config_path):
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_key = json.load(f).get('civitai_api_key')
     try:
-        found = await asyncio.to_thread(sdsage.resolve_civitai, ref, os.environ.get('CIVITAI_API_KEY') or config_key)
+        found = await asyncio.to_thread(sdsage.resolve_civitai, ref, civitai_api_key())
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except httpx.HTTPStatusError as e:
