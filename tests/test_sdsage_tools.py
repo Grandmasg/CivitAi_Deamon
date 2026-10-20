@@ -126,3 +126,34 @@ def test_thumbnails_only_from_civitai():
         sdsage_search.thumbnail("https://evil.example/x.jpg", None)
     with pytest.raises(ValueError):
         sdsage_search.thumbnail("http://image.civitai.com/x.jpg", None)
+
+
+def test_preview_rating_found_by_blurhash(folder):
+    """The preview is the second CivitAI image: its rating is used, not the first's."""
+    from PIL import Image
+
+    from backend import sdsage_previews
+
+    model = folder / "Lora" / "p.safetensors"
+    model.write_bytes(b"p")
+    red = Image.new("RGB", (64, 96), (220, 30, 30))
+    red.save(folder / "Lora" / "p.preview.png")
+    blue_hash = "LEHV6nWB2yk8pyo0adR*.7kCMdnj"  # a blue-ish 4x3 blurhash
+    # The blurhash of a plain red image: only the average colour is set.
+    r, g, b = (sdsage_previews._linear(c) for c in (220, 30, 30))
+    assert sdsage_previews.hash_components(blue_hash)
+    pixels = sdsage_previews._pixels(folder / "Lora" / "p.preview.png")
+    comps = sdsage_previews.image_components(pixels, 1, 1)
+    assert abs(comps[0][0] - r) < 0.01 and abs(comps[0][2] - b) < 0.01
+
+    def b83(value, length):
+        chars = sdsage_previews._CHARS
+        return "".join(chars[(value // 83 ** (length - 1 - i)) % 83] for i in range(length))
+
+    red_hash = b83(0, 1) + b83(0, 1) + b83((220 << 16) | (30 << 8) | 30, 4)
+    info = {"id": 2, "modelId": 1, "images": [{"hash": blue_hash, "nsfwLevel": 1}, {"hash": red_hash, "nsfwLevel": 8}]}
+    (folder / "Lora" / "p.civitai.info").write_text(json.dumps(info))
+    assert sdsage_previews.rate(model)
+    saved = json.loads((folder / "Lora" / "p.civitai.info").read_text())
+    assert saved["sdsagePreview"]["nsfwLevel"] == 8
+    assert not sdsage_previews.rate(model), "not worked out again while the preview is unchanged"

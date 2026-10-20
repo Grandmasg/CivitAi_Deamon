@@ -23,6 +23,7 @@ from pathlib import Path
 import httpx
 
 from backend import sdsage
+from backend.sdsage_search import _thumb
 
 MODEL_EXTENSIONS = (".safetensors", ".gguf", ".ckpt", ".pt", ".pth", ".bin")
 BATCH = 100
@@ -132,18 +133,33 @@ def compare(local: list[dict], remote: dict[int, dict]) -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
+        image = next((i for i in latest.get("images") or [] if i.get("type", "image") == "image"), None) or {}
+        primary = next((f for f in latest.get("files") or [] if f.get("primary")), None) or (latest.get("files") or [{}])[0]
         items.append(
             {
                 "model_id": m["model_id"],
                 "name": model.get("name") or m["name"],
                 "type": model.get("type") or m["type"],
                 "file": m["file"],
-                "current": {"id": m["version_id"], "name": m["version_name"], "base_model": m["base_model"]},
+                "nsfw": bool(model.get("nsfw")),
+                "creator": (model.get("creator") or {}).get("username"),
+                "link": f"https://civitai.com/models/{m['model_id']}?modelVersionId={latest['id']}",
+                "current": {
+                    "id": m["version_id"],
+                    "name": m["version_name"],
+                    "base_model": m["base_model"],
+                    "published_at": since,
+                },
                 "latest": {
                     "id": latest["id"],
                     "name": latest.get("name", ""),
                     "base_model": latest.get("baseModel"),
                     "published_at": latest.get("publishedAt") or latest.get("createdAt"),
+                    "image": _thumb(image.get("url")),
+                    "image_adult": (image.get("nsfwLevel") or 1) > 2,
+                    "size_bytes": int((primary.get("sizeKB") or 0) * 1024) or None,
+                    "downloads": (latest.get("stats") or {}).get("downloadCount"),
+                    "trained_words": (latest.get("trainedWords") or [])[:10],
                 },
                 "kind": "update" if same else "variant",
                 "newer_count": len(newer),

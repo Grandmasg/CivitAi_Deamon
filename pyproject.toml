@@ -24,6 +24,7 @@ dependencies = [
   "pytest",
   "loguru",
   "huggingface-hub>=0.30",
+  "pillow>=13.0.0",
 ]
 
 [tool.setuptools.packages.find]

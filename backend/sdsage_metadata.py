@@ -21,7 +21,7 @@ from pathlib import Path
 
 import httpx
 
-from backend import sdsage
+from backend import sdsage, sdsage_previews
 
 MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".sft"}
 # Folders with models CivitAI may know.
@@ -192,6 +192,14 @@ def run(api_key: str | None) -> None:
                     _status["not_found"] += 1
             with _lock:
                 _status["done"] += 1
+        # Which CivitAI image each preview is, so adult previews are known.
+        _set(current="previews")
+        for path in model_files(root):
+            try:
+                if sdsage_previews.rate(path):
+                    written.append(str(path.relative_to(root)))
+            except Exception:  # one odd image must not stop the rest
+                continue
     finally:
         _set(running=False, current=None, finished_at=int(time.time()))
         if written:
