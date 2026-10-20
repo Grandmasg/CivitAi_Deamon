@@ -86,21 +86,41 @@ def model_files(root: Path) -> list[Path]:
 
 
 def has_info(path: Path) -> bool:
-    """CivitAI info beside the model: a .civitai.info, or the `civitai` part of
-    a .metadata.json written by another tool (ComfyUI LoRA Manager and the like)."""
-    if sidecar(path).exists():
-        return True
-    meta = path.with_name(path.stem + ".metadata.json")
+    """A complete .civitai.info beside the model: a model version as CivitAI's
+    API returns it, with its images and their ratings. Older tools saved the
+    model instead (`modelVersions`, no `modelId`) or left fields out; those
+    files are looked up again and replaced."""
     try:
-        civitai = json.loads(meta.read_text(encoding="utf-8")).get("civitai") or {}
-    except (OSError, ValueError, AttributeError):
+        info = json.loads(sidecar(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return False
-    return bool(civitai.get("id") or civitai.get("modelId"))
+    return isinstance(info, dict) and "modelId" in info and "images" in info
+
+
+def known_sha(path: Path) -> str | None:
+    """The SHA256 another tool saved in its .metadata.json (LoRA Manager), so
+    large files need not be hashed again."""
+    try:
+        sha = json.loads(path.with_name(path.stem + ".metadata.json").read_text(encoding="utf-8")).get("sha256")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if isinstance(sha, str) and len(sha) == 64 and all(c in "0123456789abcdefABCDEF" for c in sha):
+        return sha.lower()
+    return None
 
 
 def missing(root: Path, unknown: dict) -> list[Path]:
-    """Models without CivitAI info that were not looked up unchanged before."""
+    """Models without complete CivitAI info that were not looked up unchanged before."""
     return [p for p in model_files(root) if not has_info(p) and unknown.get(str(p)) != _key(p)]
+
+
+def replace_info(path: Path, info: dict) -> None:
+    """Write the new info; an older file is kept once as .civitai.info.bak."""
+    old = sidecar(path)
+    backup = old.with_name(old.name + ".bak")
+    if old.exists() and not backup.exists():
+        old.replace(backup)
+    sdsage.write_civitai_info(path, info)
 
 
 def lookup(sha: str, api_key: str | None) -> dict | None:
@@ -151,15 +171,17 @@ def run(api_key: str | None) -> None:
         for path in todo:
             _set(current=str(path.relative_to(root)))
             try:
-                sha = sha256(path, hashes)
-                _save("hashes.json", hashes)
+                sha = known_sha(path)
+                if not sha:
+                    sha = sha256(path, hashes)
+                    _save("hashes.json", hashes)
                 info = lookup(sha, api_key)
                 time.sleep(PAUSE_SECONDS)
             except (OSError, httpx.HTTPError) as e:
                 _set(error=f"{path.name}: {e}")
                 continue
             if info:
-                sdsage.write_civitai_info(path, info)
+                replace_info(path, info)
                 written.append(str(path.relative_to(root)))
                 with _lock:
                     _status["found"] += 1
