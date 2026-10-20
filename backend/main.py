@@ -339,6 +339,108 @@ async def sdsage_updates_ignore(request: Request, user: dict = Depends(get_curre
     return {"status": "ok"}
 
 
+def _admin(user: dict) -> None:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+
+
+@app.get("/api/sdsage/metadata")
+def sdsage_metadata_status(user: dict = Depends(get_current_user)):
+    """How the lookup of missing CivitAI info is going."""
+    from backend import sdsage_metadata
+    return sdsage_metadata.status()
+
+
+@app.post("/api/sdsage/metadata/fetch")
+def sdsage_metadata_fetch(user: dict = Depends(get_current_user)):
+    """Find CivitAI info, by hash, for models that have none. Admins only."""
+    _admin(user)
+    from backend import sdsage_metadata
+    return {"status": "started" if sdsage_metadata.start(civitai_api_key()) else "running"}
+
+
+@app.get("/api/sdsage/duplicates")
+def sdsage_duplicates_status(user: dict = Depends(get_current_user)):
+    """The last search for the same model in several places."""
+    from backend import sdsage_duplicates
+    return sdsage_duplicates.status()
+
+
+@app.post("/api/sdsage/duplicates/scan")
+def sdsage_duplicates_scan(user: dict = Depends(get_current_user)):
+    """Look for duplicates (files of equal size are hashed). Admins only; nothing is deleted."""
+    _admin(user)
+    from backend import sdsage_duplicates
+    return {"status": "started" if sdsage_duplicates.start() else "running"}
+
+
+_local_versions: dict = {"at": 0.0, "ids": set()}
+
+
+def _downloaded_versions() -> set:
+    """Version ids of the models in the folder, from their .civitai.info (cached a few minutes)."""
+    import time as _time
+    from pathlib import Path as _Path
+    from backend import sdsage_updates
+    if sdsage.MODELS_DIR and _time.time() - _local_versions["at"] > 300:
+        _local_versions["ids"] = {m["version_id"] for m in sdsage_updates.local_models(_Path(sdsage.MODELS_DIR))}
+        _local_versions["at"] = _time.time()
+    return _local_versions["ids"] | {i.get("model_version_id") for i in daemon_instance.all_downloaded if isinstance(i, dict)}
+
+
+@app.post("/api/sdsage/search")
+async def sdsage_search(request: Request, user: dict = Depends(get_current_user)):
+    """Search CivitAI: query, type, base model, sort, period, adult, cursor."""
+    from backend import sdsage_search
+    params = await request.json()
+    try:
+        return await asyncio.to_thread(sdsage_search.search, params, civitai_api_key(), _downloaded_versions())
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"CivitAI did not answer: {e}")
+
+
+@app.get("/api/sdsage/thumb")
+async def sdsage_thumb(url: str, user: dict = Depends(get_current_user)):
+    """A CivitAI preview image, fetched by the daemon for the page."""
+    from backend import sdsage_search
+    try:
+        body, kind = await asyncio.to_thread(sdsage_search.thumbnail, url, civitai_api_key())
+    except (ValueError, httpx.HTTPError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return Response(content=body, media_type=kind, headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.post("/api/sdsage/downloads/cancel")
+async def sdsage_cancel(request: Request, user: dict = Depends(get_current_user)):
+    """Cancel one download: the running one stops, a queued one leaves the queue. Admins only."""
+    _admin(user)
+    data = await request.json()
+    filename = str(data.get("filename") or "")
+    if not filename:
+        raise HTTPException(status_code=422, detail="filename is required")
+    if any(i.get("filename") == filename for i in list(daemon_instance.active_downloads)):
+        daemon_instance.cancel()
+        return {"status": "cancelling"}
+    import heapq
+    q = daemon_instance.queue
+    with q.mutex:
+        before = len(q.queue)
+        q.queue[:] = [e for e in q.queue if not (isinstance(e, tuple) and len(e) == 3 and isinstance(e[2], dict) and e[2].get("filename") == filename)]
+        heapq.heapify(q.queue)
+        removed = before - len(q.queue)
+        q.unfinished_tasks = max(0, q.unfinished_tasks - removed)
+    return {"status": "removed" if removed else "not found"}
+
+
+@app.post("/api/sdsage/downloads/pause")
+async def sdsage_pause(request: Request, user: dict = Depends(get_current_user)):
+    """Pause or resume all downloads. Admins only."""
+    _admin(user)
+    data = await request.json()
+    daemon_instance.paused = bool(data.get("paused", True))
+    return {"paused": daemon_instance.paused}
+
+
 @app.post("/api/download_civitai")
 async def download_civitai(request: Request, user: dict = Depends(get_current_user)):
     """Queue a download from a CivitAI link, AIR or model id. Admins only."""
