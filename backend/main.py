@@ -374,18 +374,25 @@ def sdsage_duplicates_scan(user: dict = Depends(get_current_user)):
     return {"status": "started" if sdsage_duplicates.start() else "running"}
 
 
-_local_versions: dict = {"at": 0.0, "ids": set()}
+_local_versions: dict = {"at": 0.0, "ids": set(), "models": set()}
 
 
-def _downloaded_versions() -> set:
-    """Version ids of the models in the folder, from their .civitai.info (cached a few minutes)."""
+def _downloaded_versions() -> tuple[set, set]:
+    """Version and model ids of the models in the folder, from their .civitai.info
+    (cached a few minutes), and of what the daemon downloaded."""
     import time as _time
     from pathlib import Path as _Path
     from backend import sdsage_updates
     if sdsage.MODELS_DIR and _time.time() - _local_versions["at"] > 300:
-        _local_versions["ids"] = {m["version_id"] for m in sdsage_updates.local_models(_Path(sdsage.MODELS_DIR))}
+        local = sdsage_updates.local_models(_Path(sdsage.MODELS_DIR))
+        _local_versions["ids"] = {m["version_id"] for m in local}
+        _local_versions["models"] = {m["model_id"] for m in local}
         _local_versions["at"] = _time.time()
-    return _local_versions["ids"] | {i.get("model_version_id") for i in daemon_instance.all_downloaded if isinstance(i, dict)}
+    done = [i for i in daemon_instance.all_downloaded if isinstance(i, dict)]
+    return (
+        _local_versions["ids"] | {i.get("model_version_id") for i in done},
+        _local_versions["models"] | {i.get("model_id") for i in done},
+    )
 
 
 @app.post("/api/sdsage/search")
@@ -394,7 +401,8 @@ async def sdsage_search(request: Request, user: dict = Depends(get_current_user)
     from backend import sdsage_search
     params = await request.json()
     try:
-        return await asyncio.to_thread(sdsage_search.search, params, civitai_api_key(), _downloaded_versions())
+        versions, models = _downloaded_versions()
+        return await asyncio.to_thread(sdsage_search.search, params, civitai_api_key(), versions, models)
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"CivitAI did not answer: {e}")
 

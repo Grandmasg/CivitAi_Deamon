@@ -16,6 +16,9 @@ from backend import sdsage
 TYPES = {"Checkpoint", "LORA", "LoCon", "DoRA", "TextualInversion", "VAE", "Controlnet", "Upscaler"}
 SORTS = {"Highest Rated", "Most Downloaded", "Newest"}
 PERIODS = {"AllTime", "Year", "Month", "Week", "Day"}
+# CivitAI filters the base model after taking a page, so a page can come back
+# nearly empty; up to this many pages are read to fill one.
+MAX_ROUNDS = 5
 THUMB_HOSTS = {"image.civitai.com", "imagecache.civitai.com"}
 MAX_THUMB_BYTES = 4 * 1024 * 1024
 
@@ -39,23 +42,40 @@ def _thumb(url: str | None) -> str | None:
     return url
 
 
-def search(params: dict, api_key: str | None, downloaded: set[int]) -> dict:
-    query = {"limit": max(1, min(48, int(params.get("limit") or 24)))}
-    if (q := str(params.get("query") or "").strip()):
+def search(params: dict, api_key: str | None, downloaded: set[int], have_models: set[int] = frozenset()) -> dict:
+    limit = max(1, min(48, int(params.get("limit") or 24)))
+    query = {"limit": limit}
+    q = str(params.get("query") or "").strip()
+    if q:
         query["query"] = q[:100]
     if params.get("type") in TYPES:
         query["types"] = params["type"]
     if (base := str(params.get("base") or "").strip()):
         query["baseModels"] = base[:60]
     query["sort"] = params.get("sort") if params.get("sort") in SORTS else "Highest Rated"
-    query["period"] = params.get("period") if params.get("period") in PERIODS else "Month"
+    # With a search text CivitAI uses another index, where a period returns
+    # nothing at all: search over all time then.
+    query["period"] = "AllTime" if q else (params.get("period") if params.get("period") in PERIODS else "Month")
     query["nsfw"] = "true" if params.get("nsfw") is True else "false"
     if (cursor := str(params.get("cursor") or "").strip()):
         query["cursor"] = cursor[:200]
+    found: list[dict] = []
+    seen: set = set()
+    next_cursor = None
     with _client(api_key) as client:
-        data = client.get(f"{sdsage.CIVITAI_API}/models", params=query).raise_for_status().json()
+        for _ in range(MAX_ROUNDS):
+            data = client.get(f"{sdsage.CIVITAI_API}/models", params=query).raise_for_status().json()
+            for m in data.get("items") or []:
+                if m.get("id") not in seen:
+                    seen.add(m.get("id"))
+                    found.append(m)
+            next_cursor = (data.get("metadata") or {}).get("nextCursor")
+            # The end: no next page, a full page, or a cursor that did not move.
+            if not next_cursor or len(found) >= limit or str(next_cursor) == str(query.get("cursor")):
+                break
+            query["cursor"] = next_cursor
     items = []
-    for m in data.get("items") or []:
+    for m in found:
         version = (m.get("modelVersions") or [{}])[0]
         files = version.get("files") or []
         primary = next((f for f in files if f.get("primary")), files[0] if files else {})
@@ -80,9 +100,11 @@ def search(params: dict, api_key: str | None, downloaded: set[int]) -> dict:
             # Images CivitAI rates above PG-13 are blurred by the page.
             "image_adult": (image.get("nsfwLevel") or 1) > 2,
             "downloaded": version.get("id") in downloaded,
+            # Another version of this model is in the folder.
+            "have_model": m.get("id") in have_models and version.get("id") not in downloaded,
             "commercial": m.get("allowCommercialUse"),
         })
-    return {"items": items, "next": (data.get("metadata") or {}).get("nextCursor")}
+    return {"items": items, "next": next_cursor}
 
 
 def thumbnail(url: str, api_key: str | None) -> tuple[bytes, str]:

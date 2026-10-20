@@ -157,3 +157,45 @@ def test_preview_rating_found_by_blurhash(folder):
     saved = json.loads((folder / "Lora" / "p.civitai.info").read_text())
     assert saved["sdsagePreview"]["nsfwLevel"] == 8
     assert not sdsage_previews.rate(model), "not worked out again while the preview is unchanged"
+
+
+def test_search_fills_a_page_and_marks_other_versions(monkeypatch):
+    """CivitAI filters the base after paging: more pages are read to fill one."""
+    calls = []
+
+    def page(ids, cursor):
+        return {"items": [{"id": i, "name": f"m{i}", "modelVersions": [{"id": i * 10}]} for i in ids], "metadata": {"nextCursor": cursor}}
+
+    pages = {None: page([1, 2], "c2"), "c2": page([], "c3"), "c3": page([3, 4, 5], "c4")}
+
+    class Resp:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            return self
+
+        def json(self):
+            return self.data
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, params=None):
+            calls.append(dict(params))
+            return Resp(pages[params.get("cursor")])
+
+    monkeypatch.setattr(sdsage_search.httpx, "Client", Client)
+    out = sdsage_search.search({"query": "fox", "period": "Month", "limit": 4}, None, {10}, {2})
+    assert [i["id"] for i in out["items"]] == [1, 2, 3, 4, 5]
+    assert out["next"] == "c4" and len(calls) == 3
+    assert calls[0]["period"] == "AllTime", "a text search ignores the period"
+    have = {i["id"]: (i["downloaded"], i["have_model"]) for i in out["items"]}
+    assert have[1] == (True, False) and have[2] == (False, True) and have[3] == (False, False)
