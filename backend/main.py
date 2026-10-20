@@ -441,6 +441,105 @@ async def sdsage_pause(request: Request, user: dict = Depends(get_current_user))
     return {"paused": daemon_instance.paused}
 
 
+# ---- Hugging Face ----
+
+import re as _re
+
+_REPO = _re.compile(r"^[A-Za-z0-9][\w.-]{0,95}/[\w.-]{1,96}$")
+
+
+def _repo(data: dict) -> str:
+    repo = str(data.get("repo") or "").strip()
+    if not _REPO.match(repo) or ".." in repo:
+        raise HTTPException(status_code=422, detail="repo is <owner>/<name>")
+    return repo
+
+
+@app.post("/api/sdsage/hf/search")
+async def hf_search(request: Request, user: dict = Depends(get_current_user)):
+    """Search Hugging Face: query, task (text-to-image, image-to-video, ...), sort."""
+    from backend import sdsage_hf
+    try:
+        return await asyncio.to_thread(sdsage_hf.search, await request.json())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Hugging Face did not answer: {e}")
+
+
+@app.post("/api/sdsage/hf/plan")
+async def hf_plan(request: Request, user: dict = Depends(get_current_user)):
+    """What downloading a repo would fetch, and whether access is granted."""
+    from backend import sdsage_hf
+    repo = _repo(await request.json())
+    try:
+        return await asyncio.to_thread(sdsage_hf.plan, repo)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/sdsage/hf/download")
+async def hf_download(request: Request, user: dict = Depends(get_current_user)):
+    """Download a repo (or complete one) into the cache SD.Sage scans. Admins only."""
+    _admin(user)
+    from backend import sdsage_hf
+    data = await request.json()
+    repo = _repo(data)
+    files = data.get("files") if isinstance(data.get("files"), list) else None
+    try:
+        return await asyncio.to_thread(sdsage_hf.enqueue, repo, files)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/sdsage/hf/downloads")
+def hf_downloads(user: dict = Depends(get_current_user)):
+    from backend import sdsage_hf
+    return sdsage_hf.status()
+
+
+@app.post("/api/sdsage/hf/cancel")
+async def hf_cancel(request: Request, user: dict = Depends(get_current_user)):
+    _admin(user)
+    from backend import sdsage_hf
+    return {"status": sdsage_hf.cancel(_repo(await request.json()))}
+
+
+@app.get("/api/sdsage/hf/local")
+async def hf_local(user: dict = Depends(get_current_user)):
+    """The repos in the cache: complete, partial or configs only, with sizes."""
+    from backend import sdsage_hf
+    try:
+        return {"repos": await asyncio.to_thread(sdsage_hf.local_repos)}
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.post("/api/sdsage/hf/delete")
+async def hf_delete(request: Request, user: dict = Depends(get_current_user)):
+    """Remove a repo from the cache, on the admin's word. Admins only."""
+    _admin(user)
+    from backend import sdsage_hf
+    try:
+        return {"freed": await asyncio.to_thread(sdsage_hf.delete_repo, _repo(await request.json()))}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/api/sdsage/hf/updates")
+def hf_updates(user: dict = Depends(get_current_user)):
+    from backend import sdsage_hf
+    return sdsage_hf.updates()
+
+
+@app.post("/api/sdsage/hf/updates/check")
+def hf_updates_check(user: dict = Depends(get_current_user)):
+    _admin(user)
+    from backend import sdsage_hf
+    threading.Thread(target=sdsage_hf.check_updates, daemon=True).start()
+    return {"status": "started"}
+
+
 @app.post("/api/download_civitai")
 async def download_civitai(request: Request, user: dict = Depends(get_current_user)):
     """Queue a download from a CivitAI link, AIR or model id. Admins only."""

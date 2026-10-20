@@ -22,7 +22,8 @@ dependencies = [
   "ipykernel",
   "websockets>=15.0",
   "pytest",
-  "loguru"
+  "loguru",
+  "huggingface-hub>=0.30",
 ]
 
 [tool.setuptools.packages.find]
