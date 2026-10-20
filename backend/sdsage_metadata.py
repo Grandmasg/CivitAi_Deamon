@@ -85,9 +85,22 @@ def model_files(root: Path) -> list[Path]:
     return sorted(out)
 
 
+def has_info(path: Path) -> bool:
+    """CivitAI info beside the model: a .civitai.info, or the `civitai` part of
+    a .metadata.json written by another tool (ComfyUI LoRA Manager and the like)."""
+    if sidecar(path).exists():
+        return True
+    meta = path.with_name(path.stem + ".metadata.json")
+    try:
+        civitai = json.loads(meta.read_text(encoding="utf-8")).get("civitai") or {}
+    except (OSError, ValueError, AttributeError):
+        return False
+    return bool(civitai.get("id") or civitai.get("modelId"))
+
+
 def missing(root: Path, unknown: dict) -> list[Path]:
     """Models without CivitAI info that were not looked up unchanged before."""
-    return [p for p in model_files(root) if not sidecar(p).exists() and unknown.get(str(p)) != _key(p)]
+    return [p for p in model_files(root) if not has_info(p) and unknown.get(str(p)) != _key(p)]
 
 
 def lookup(sha: str, api_key: str | None) -> dict | None:
