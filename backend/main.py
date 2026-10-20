@@ -407,6 +407,19 @@ async def sdsage_search(request: Request, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=502, detail=f"CivitAI did not answer: {e}")
 
 
+@app.get("/api/sdsage/model")
+async def sdsage_model(id: int, adult: bool = False, user: dict = Depends(get_current_user)):
+    """One CivitAI model with its versions and images, for the model window."""
+    from backend import sdsage_search
+    try:
+        versions, _ = _downloaded_versions()
+        return await asyncio.to_thread(sdsage_search.model, id, civitai_api_key(), adult, versions)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="adult model")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"CivitAI did not answer: {e}")
+
+
 @app.get("/api/sdsage/thumb")
 async def sdsage_thumb(url: str, user: dict = Depends(get_current_user)):
     """A CivitAI preview image, fetched by the daemon for the page."""

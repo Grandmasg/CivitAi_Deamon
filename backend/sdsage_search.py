@@ -7,6 +7,8 @@ strict content policy can stay and no third party sees its users' requests.
 
 from __future__ import annotations
 
+import html
+import re
 from urllib.parse import urlparse
 
 import httpx
@@ -30,16 +32,86 @@ def _client(api_key: str | None) -> httpx.Client:
     return httpx.Client(timeout=30, headers=headers, follow_redirects=True)
 
 
-def _thumb(url: str | None) -> str | None:
-    """A small version of a CivitAI image, through the daemon."""
+def _thumb(url: str | None, width: int = 450) -> str | None:
+    """A smaller version of a CivitAI image, through the daemon."""
     if not url or urlparse(url).hostname not in THUMB_HOSTS:
         return None
     # CivitAI resizes on the fly: /width=450/ in the path.
     parts = url.split("/")
     if len(parts) > 4:
-        parts[-2] = "width=450"
+        parts[-2] = f"width={width}"
         url = "/".join(parts)
     return url
+
+
+def html_text(text: str | None, limit: int = 8000) -> str:
+    """CivitAI's HTML descriptions as plain text with paragraphs."""
+    if not text:
+        return ""
+    text = re.sub(r"(?i)<br\s*/?>|</p>|</h[1-6]>|</li>", "\n", text)
+    text = re.sub(r"(?i)<li[^>]*>", "• ", text)
+    text = html.unescape(re.sub(r"<[^>]+>", "", text))
+    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text).strip()
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def model(model_id: int, api_key: str | None, adult: bool, downloaded: set[int]) -> dict:
+    """One model with its versions and their images, for SD.Sage's model window.
+    Without adult access, models CivitAI marks adult are refused and images
+    rated above PG-13 are left out."""
+    with _client(api_key) as client:
+        m = client.get(f"{sdsage.CIVITAI_API}/models/{int(model_id)}").raise_for_status().json()
+    if m.get("nsfw") and not adult:
+        raise PermissionError("adult model")
+    versions = []
+    for v in m.get("modelVersions") or []:
+        files = v.get("files") or []
+        primary = next((f for f in files if f.get("primary")), files[0] if files else {})
+        images = []
+        for i in v.get("images") or []:
+            if i.get("type", "image") != "image":
+                continue
+            rated_adult = (i.get("nsfwLevel") or 1) > 2
+            if rated_adult and not adult:
+                continue
+            meta = i.get("meta") or {}
+            images.append({
+                "thumb": _thumb(i.get("url")),
+                "large": _thumb(i.get("url"), 1280),
+                "width": i.get("width"),
+                "height": i.get("height"),
+                "adult": rated_adult,
+                "prompt": (meta.get("prompt") or "")[:2000] or None,
+                "settings": {k: meta[k] for k in ("sampler", "steps", "cfgScale", "Size", "seed", "Model") if k in meta} or None,
+            })
+        versions.append({
+            "id": v.get("id"),
+            "name": v.get("name"),
+            "base": v.get("baseModel"),
+            "published": v.get("publishedAt") or v.get("createdAt"),
+            "size_kb": primary.get("sizeKB"),
+            "downloads": (v.get("stats") or {}).get("downloadCount"),
+            "triggers": v.get("trainedWords") or [],
+            "notes": html_text(v.get("description"), 3000),
+            "images": images,
+            "downloaded": v.get("id") in downloaded,
+        })
+    return {
+        "id": m.get("id"),
+        "name": m.get("name"),
+        "type": m.get("type"),
+        "nsfw": bool(m.get("nsfw")),
+        "creator": (m.get("creator") or {}).get("username"),
+        "tags": (m.get("tags") or [])[:20],
+        "description": html_text(m.get("description")),
+        "downloads": (m.get("stats") or {}).get("downloadCount"),
+        "likes": (m.get("stats") or {}).get("thumbsUpCount"),
+        "commercial": m.get("allowCommercialUse"),
+        "allow_no_credit": m.get("allowNoCredit"),
+        "allow_derivatives": m.get("allowDerivatives"),
+        "link": f"https://civitai.com/models/{m.get('id')}",
+        "versions": versions,
+    }
 
 
 def search(params: dict, api_key: str | None, downloaded: set[int], have_models: set[int] = frozenset()) -> dict:

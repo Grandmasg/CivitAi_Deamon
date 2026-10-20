@@ -199,3 +199,41 @@ def test_search_fills_a_page_and_marks_other_versions(monkeypatch):
     assert calls[0]["period"] == "AllTime", "a text search ignores the period"
     have = {i["id"]: (i["downloaded"], i["have_model"]) for i in out["items"]}
     assert have[1] == (True, False) and have[2] == (False, True) and have[3] == (False, False)
+
+
+def test_model_window_leaves_out_adult_images_without_access(monkeypatch):
+    data = {"id": 5, "name": "M", "nsfw": False, "description": "<p>Hi &amp; bye</p>", "modelVersions": [{
+        "id": 50, "name": "v1", "images": [
+            {"url": "https://image.civitai.com/a/b/width=1024/1.jpeg", "nsfwLevel": 1, "meta": {"prompt": "fox", "steps": 20}},
+            {"url": "https://image.civitai.com/a/b/width=1024/2.jpeg", "nsfwLevel": 8},
+        ]}]}
+
+    class Resp:
+        def raise_for_status(self):
+            return self
+
+        def json(self):
+            return data
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, params=None):
+            return Resp()
+
+    monkeypatch.setattr(sdsage_search.httpx, "Client", Client)
+    m = sdsage_search.model(5, None, False, {50})
+    v = m["versions"][0]
+    assert m["description"] == "Hi & bye" and v["downloaded"] is True
+    assert len(v["images"]) == 1 and v["images"][0]["prompt"] == "fox" and "width=1280" in v["images"][0]["large"]
+    assert len(sdsage_search.model(5, None, True, set())["versions"][0]["images"]) == 2
+    data["nsfw"] = True
+    with pytest.raises(PermissionError):
+        sdsage_search.model(5, None, False, set())
