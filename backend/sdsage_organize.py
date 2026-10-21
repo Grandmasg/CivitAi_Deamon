@@ -150,12 +150,35 @@ def apply(root: Path, moves: list[dict]) -> dict:
             failed.append({"from": m["from"], "error": str(e)})
             continue
         done.append({"at": int(time.time()), "files": moved})
+    rekey(done)
     log = _log()
     log.extend(done)
     _save_log(log)
     if done:
         sdsage.notify("model.added", {"organized": len(done)})
     return {"moved": len(done), "failed": failed}
+
+
+def rekey(entries: list[dict]) -> None:
+    """Hashes and "not on CivitAI" notes are kept by path: move them along,
+    so a moved model is not hashed (or looked up) again."""
+    from backend import sdsage_metadata as meta
+
+    moved = {src: dest for e in entries for src, dest in e["files"]}
+    if not moved:
+        return
+    hashes = meta._load("hashes.json")
+    changed = {}
+    for key, sha in hashes.items():
+        path, _, rest = key.partition("|")
+        changed[f"{moved.get(path, path)}|{rest}" if rest else key] = sha
+    meta._save("hashes.json", changed)
+    unknown = meta._load("unknown_hashes.json")
+    new_unknown = {}
+    for path, key in unknown.items():
+        dest = moved.get(path, path)
+        new_unknown[dest] = key.replace(path, dest, 1) if isinstance(key, str) else key
+    meta._save("unknown_hashes.json", new_unknown)
 
 
 def undo() -> dict:
@@ -171,6 +194,7 @@ def undo() -> dict:
                     back += 1
             except OSError as e:
                 failed.append({"file": dest, "error": str(e)})
+    rekey([{"files": [[dest, src] for src, dest in e["files"]]} for e in log])
     _save_log([])
     if back:
         sdsage.notify("model.added", {"organized": -back})
