@@ -374,6 +374,43 @@ def sdsage_duplicates_scan(user: dict = Depends(get_current_user)):
     return {"status": "started" if sdsage_duplicates.start() else "running"}
 
 
+@app.get("/api/sdsage/organize/plan")
+def sdsage_organize_plan(user: dict = Depends(get_current_user)):
+    """Which models would move to <type>/<base>/; nothing is touched. Admins only."""
+    _admin(user)
+    from pathlib import Path as _Path
+    from backend import sdsage_organize
+    if not sdsage.MODELS_DIR:
+        raise HTTPException(status_code=400, detail="SDSAGE_MODELS_DIR is not set")
+    return sdsage_organize.plan(_Path(sdsage.MODELS_DIR))
+
+
+@app.post("/api/sdsage/organize/apply")
+async def sdsage_organize_apply(request: Request, user: dict = Depends(get_current_user)):
+    """Carry out the plan (worked out again now), or only the moves named in
+    {"from": [...]}. Every move is logged for undo. Admins only."""
+    _admin(user)
+    from pathlib import Path as _Path
+    from backend import sdsage_organize
+    if not sdsage.MODELS_DIR:
+        raise HTTPException(status_code=400, detail="SDSAGE_MODELS_DIR is not set")
+    body = await request.json() if (await request.body()) else {}
+    root = _Path(sdsage.MODELS_DIR)
+    moves = sdsage_organize.plan(root)["moves"]
+    if isinstance(body.get("from"), list):
+        wanted = set(body["from"])
+        moves = [m for m in moves if m["from"] in wanted]
+    return await asyncio.to_thread(sdsage_organize.apply, root, moves)
+
+
+@app.post("/api/sdsage/organize/undo")
+def sdsage_organize_undo(user: dict = Depends(get_current_user)):
+    """Move back what earlier runs moved. Admins only."""
+    _admin(user)
+    from backend import sdsage_organize
+    return sdsage_organize.undo()
+
+
 _local_versions: dict = {"at": 0.0, "ids": set(), "models": set()}
 
 

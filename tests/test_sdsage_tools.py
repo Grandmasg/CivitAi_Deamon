@@ -237,3 +237,42 @@ def test_model_window_leaves_out_adult_images_without_access(monkeypatch):
     data["nsfw"] = True
     with pytest.raises(PermissionError):
         sdsage_search.model(5, None, False, set())
+
+
+def test_organize_plans_moves_keeps_subfolders_and_undoes(folder):
+    from backend import sdsage_organize as o
+
+    sd = folder / "Stable-diffusion"
+    (sd / "XL" / "anime").mkdir(parents=True)
+    (sd / "SD").mkdir(parents=True)
+    a = sd / "XL" / "anime" / "a.safetensors"
+    a.write_bytes(b"a")
+    (sd / "XL" / "anime" / "a.civitai.info").write_text(json.dumps({"baseModel": "Illustrious"}))
+    (sd / "XL" / "anime" / "a.preview.png").write_bytes(b"p")
+    (sd / "XL" / "anime" / "a_0.png").write_bytes(b"s")
+    (sd / "XL" / "anime" / "ab.safetensors").write_bytes(b"other model")
+    b = sd / "SD" / "b.safetensors"
+    b.write_bytes(b"b")
+    (folder / "Lora" / "mystery.safetensors").write_bytes(b"?")
+
+    plan = o.plan(folder)
+    by_from = {m["from"].replace("\\", "/"): m for m in plan["moves"]}
+    assert by_from["Stable-diffusion/XL/anime/a.safetensors"]["to"].replace("\\", "/") == "Stable-diffusion/Illustrious/anime/a.safetensors"
+    assert len(by_from["Stable-diffusion/XL/anime/a.safetensors"]["files"]) == 4, "model, info, preview and sample move together"
+    assert by_from["Stable-diffusion/SD/b.safetensors"]["to"].replace("\\", "/") == "Stable-diffusion/SD 1.5/b.safetensors"
+    assert any("mystery" in u for u in plan["unknown"]), "no base known: it stays"
+    assert not (sd / "Illustrious").exists(), "a plan moves nothing"
+
+    out = o.apply(folder, plan["moves"])
+    assert out["moved"] == 3 and not out["failed"]
+    assert (sd / "Illustrious" / "anime" / "a_0.png").exists() and (sd / "SD 1.5" / "b.safetensors").exists()
+    assert (sd / "XL" / "anime" / "ab.safetensors").exists() is False, "ab has its own (folder) base and moved on its own"
+    back = o.undo()
+    assert back["files_back"] >= 5 and a.exists() and b.exists()
+
+
+def test_downloads_go_to_the_canonical_base_folder(folder):
+    assert sdsage.canonical_base("SDXL 1.0") == "SDXL" and sdsage.canonical_base("Wan Video 2.2 I2V-A14B") == "Wan 2.2"
+    assert sdsage.canonical_base("Wan") == "Wan" and sdsage.canonical_base("Other") is None
+    p = sdsage.target_path("LORA", "x.safetensors", "SDXL 1.0")
+    assert p.parent.name == "SDXL" and p.parent.parent.name == "Lora"

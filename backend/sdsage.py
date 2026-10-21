@@ -58,15 +58,78 @@ def safe_part(name: str, fallback: str = "other") -> str:
     return cleaned[:150] or fallback
 
 
+def canonical_base(name: str | None) -> str | None:
+    """One name per base model; the gateway's canonical_base, kept in step."""
+    if not name:
+        return None
+    n = name.lower().replace("_", " ").replace("-", " ").strip()
+    has = lambda k: k in n
+    words = re.split(r"[^a-z0-9.]+", n)
+    if has("zimage") or has("z image"):
+        return "Z-Image"
+    if has("qwen"):
+        return "Qwen-Image"
+    if has("wan") and has("2.2"):
+        return "Wan 2.2"
+    if has("wan") and has("2.1"):
+        return "Wan 2.1"
+    if "wan" in words:
+        return "Wan"
+    if has("ltx"):
+        return "LTX Video"
+    if has("hunyuan"):
+        return "Hunyuan"
+    if has("krea 2") or has("krea2"):
+        return "Krea 2"
+    if has("flux.2") or has("flux2") or has("klein"):
+        return "Flux.2"
+    if has("flux") and has("krea"):
+        return "Flux.1 Krea"
+    if has("flux") and (has("schnell") or n.endswith(" s")):
+        return "Flux.1 S"
+    if has("flux"):
+        return "Flux.1 D"
+    if has("lumina"):
+        return "Lumina"
+    if has("chroma"):
+        return "Chroma"
+    if has("hidream"):
+        return "HiDream"
+    if has("cascade"):
+        return "Stable Cascade"
+    if has("pony"):
+        return "Pony"
+    if has("illustrious"):
+        return "Illustrious"
+    if has("noob"):
+        return "NoobAI"
+    if has("sd 3") or has("sd3"):
+        return "SD 3"
+    if has("sd 2") or has("sd2"):
+        return "SD 2"
+    if has("sd 1") or has("sd1") or n == "sd":
+        return "SD 1.5"
+    if has("lightning"):
+        return "SDXL Lightning"
+    if has("hyper"):
+        return "SDXL Hyper"
+    if has("turbo"):
+        return "SDXL Turbo"
+    if has("sdxl") or "xl" in words:
+        return "SDXL"
+    return None
+
+
 def target_path(model_type: str | None, filename: str, base_model: str | None = None) -> Path:
-    """Where a download goes inside the shared models folder, e.g. Lora/SDXL 1.0/name.safetensors."""
+    """Where a download goes inside the shared models folder, e.g. Lora/SDXL/name.safetensors."""
     if not MODELS_DIR:
         raise RuntimeError("SDSAGE_MODELS_DIR is not set")
     root = Path(MODELS_DIR).resolve()
     folder = FOLDERS.get((model_type or "").lower().replace(" ", ""), "other")
     parts = [folder]
     if base_model:
-        parts.append(safe_part(base_model))
+        # One folder per base, the names SD.Sage shows (SDXL, not "SDXL 1.0").
+        parts.append(safe_part(canonical_base(base_model) or base_model))
     path = root.joinpath(*parts, safe_part(filename, "model.safetensors")).resolve()
     if root not in path.parents:
         raise ValueError("download path points outside the models folder")
