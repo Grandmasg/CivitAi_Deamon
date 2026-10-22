@@ -276,3 +276,38 @@ def test_downloads_go_to_the_canonical_base_folder(folder):
     assert sdsage.canonical_base("Wan") == "Wan" and sdsage.canonical_base("Other") is None
     p = sdsage.target_path("LORA", "x.safetensors", "SDXL 1.0")
     assert p.parent.name == "SDXL" and p.parent.parent.name == "Lora"
+
+
+def test_trash_moves_with_files_restores_and_purges_only_inside(folder):
+    from backend import sdsage_duplicates as dup
+    from backend import sdsage_trash as tr
+
+    sd = folder / "Stable-diffusion"
+    (sd / "SDXL").mkdir(parents=True)
+    (sd / "Pony").mkdir(parents=True)
+    a = sd / "SDXL" / "a.safetensors"
+    a.write_bytes(b"same")
+    (sd / "SDXL" / "a.civitai.info").write_text("{}")
+    (sd / "SDXL" / "a.preview.png").write_bytes(b"p")
+    b = sd / "Pony" / "a copy.safetensors"
+    b.write_bytes(b"same")
+    keep = dup.suggest_keep(folder, ["Stable-diffusion/Pony/a copy.safetensors", "Stable-diffusion/SDXL/a.safetensors"])
+    assert keep == "Stable-diffusion/SDXL/a.safetensors", "the copy with its info and preview is kept"
+
+    out = tr.move_out(folder, ["Stable-diffusion/Pony/a copy.safetensors", "../outside.safetensors", "Stable-diffusion/SDXL/missing.safetensors"])
+    assert out["moved"] == 1 and len(out["failed"]) == 2
+    assert not b.exists() and (folder / "_oud" / "Stable-diffusion" / "Pony" / "a copy.safetensors").exists()
+    # A model with its sidecars goes together, and a name clash gets its own folder.
+    c = sd / "Pony" / "a copy.safetensors"
+    c.write_bytes(b"new")
+    tr.move_out(folder, ["Stable-diffusion/Pony/a copy.safetensors"])
+    assert (folder / "_oud" / "Stable-diffusion" / "Pony (1)" / "a copy.safetensors").exists()
+    tr.move_out(folder, ["Stable-diffusion/SDXL/a.safetensors"])
+    items = tr.listing(folder)["items"]
+    assert {i["was"] for i in items} >= {"Stable-diffusion/SDXL/a.safetensors"}
+    assert (folder / "_oud" / "Stable-diffusion" / "SDXL" / "a.preview.png").exists()
+
+    back = tr.restore(folder, ["_oud/Stable-diffusion/SDXL/a.safetensors"])
+    assert back["restored"] == 1 and a.exists() and (sd / "SDXL" / "a.civitai.info").exists()
+    gone = tr.purge(folder, ["_oud/Stable-diffusion/Pony/a copy.safetensors", "Stable-diffusion/SDXL/a.safetensors"])
+    assert gone["deleted"] == 1 and a.exists(), "purge touches only what is in the trash"

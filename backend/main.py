@@ -374,6 +374,41 @@ def sdsage_duplicates_scan(user: dict = Depends(get_current_user)):
     return {"status": "started" if sdsage_duplicates.start() else "running"}
 
 
+def _models_root():
+    from pathlib import Path as _Path
+    if not sdsage.MODELS_DIR:
+        raise HTTPException(status_code=400, detail="SDSAGE_MODELS_DIR is not set")
+    return _Path(sdsage.MODELS_DIR)
+
+
+@app.get("/api/sdsage/trash")
+def sdsage_trash_list(user: dict = Depends(get_current_user)):
+    """Models in the trash (_oud). Admins only."""
+    _admin(user)
+    from backend import sdsage_trash
+    return sdsage_trash.listing(_models_root())
+
+
+@app.post("/api/sdsage/trash/{action}")
+async def sdsage_trash_action(action: str, request: Request, user: dict = Depends(get_current_user)):
+    """move (models to the trash), restore (back) or purge (delete for good,
+    only with confirm: true). Body: {"files": [relative paths]}. Admins only."""
+    _admin(user)
+    from backend import sdsage_trash
+    body = await request.json()
+    files = [f for f in body.get("files") or [] if isinstance(f, str)][:2000]
+    root = _models_root()
+    if action == "move":
+        return await asyncio.to_thread(sdsage_trash.move_out, root, files)
+    if action == "restore":
+        return await asyncio.to_thread(sdsage_trash.restore, root, files)
+    if action == "purge":
+        if body.get("confirm") is not True:
+            raise HTTPException(status_code=400, detail="confirm is required to delete for good")
+        return await asyncio.to_thread(sdsage_trash.purge, root, files)
+    raise HTTPException(status_code=404, detail="unknown action")
+
+
 @app.get("/api/sdsage/organize/plan")
 def sdsage_organize_plan(user: dict = Depends(get_current_user)):
     """Which models would move to <type>/<base>/; nothing is touched. Admins only."""
