@@ -93,7 +93,7 @@ def make_queue_item(model_id, url, filename, sha256=None, priority=None, model_t
         'base_model': base_model
     }
 
-from backend.database import is_already_downloaded
+from backend.database import is_already_downloaded, pending_add, pending_all
 
 class DownloadDaemon(threading.Thread):
     def __init__(self, max_retries=None, download_dir=None, throttle=None, timeout=None, workers=None):
@@ -222,6 +222,7 @@ class DownloadDaemon(threading.Thread):
             )
             return
         self.queue.put((item['priority'], time.time(), item))
+        pending_add(item)
         # Stuur direct een 'in_queue' event per model
         ws_manager.broadcast('in_queue', {'model_id': item['model_id'], 'filename': item['filename']})
         ws_manager.broadcast('queue_update', {'queued': self.queue.qsize()})
@@ -229,6 +230,9 @@ class DownloadDaemon(threading.Thread):
     def run(self):
         self.logger.info("Daemon thread started")
         send_webhook('daemon_started', {})
+        # What was queued or running when the daemon last stopped goes back in the queue.
+        for item in pending_all():
+            self.add_job(item)
         queue_was_empty = False
         try:
             while self.running:

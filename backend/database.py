@@ -3,6 +3,7 @@
 # --- Standaard imports altijd eerst ---
 import os
 import sys
+import json
 import sqlite3
 from datetime import datetime, timezone
 from loguru import logger
@@ -119,6 +120,8 @@ def log_download(model_id, model_version_id, filename, status, message=None, mod
             c.execute('INSERT INTO downloads (timestamp, model_id, model_version_id, filename, model_type, status, message, file_size, download_time, base_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                       (datetime.now(timezone.utc).isoformat(), model_id, model_version_id, filename, model_type, status, message, file_size, download_time, base_model))
             conn.commit()
+            if status in ('success', 'skipped', 'cancelled', 'canceled', 'failed'):
+                pending_remove(model_id, model_version_id, filename)
             # Log alleen als de insert daadwerkelijk succesvol was
             db_logger.info(f"Logged download: {filename} (status={status}, model_id={model_id})")
             print(f"[DEBUG] Logged download: {filename} (status={status}, model_id={model_id})")
@@ -393,6 +396,63 @@ def downloads_per_day_base_model_status():
     result = c.fetchall()
     conn.close()
     return result
+
+# The queue lives in memory; this keeps it on disk too, so a restart does not lose it.
+def _pending_table(conn):
+    conn.execute('''CREATE TABLE IF NOT EXISTS pending_downloads (
+        key TEXT PRIMARY KEY,
+        item TEXT NOT NULL,
+        added_at TEXT
+    )''')
+
+
+def _pending_key(model_id, model_version_id, filename=None):
+    return f"{model_id}:{model_version_id or ''}:{filename or ''}"
+
+
+def pending_add(item):
+    """Remember a queued download (plain fields only)."""
+    keep = ('model_id', 'url', 'filename', 'sha256', 'priority', 'retries', 'model_type', 'model_version_id', 'base_model')
+    row = {k: item.get(k) for k in keep}
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        _pending_table(conn)
+        conn.execute('INSERT OR REPLACE INTO pending_downloads (key, item, added_at) VALUES (?, ?, ?)',
+                     (_pending_key(row['model_id'], row['model_version_id'], row['filename']), json.dumps(row),
+                      datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        db_logger.error(f"pending_add failed: {e}")
+
+
+def pending_remove(model_id, model_version_id, filename=None):
+    """Forget a download that is finished, skipped or cancelled."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        _pending_table(conn)
+        if filename:
+            conn.execute('DELETE FROM pending_downloads WHERE key = ?', (_pending_key(model_id, model_version_id, filename),))
+        else:
+            conn.execute('DELETE FROM pending_downloads WHERE key LIKE ?', (f"{model_id}:{model_version_id or ''}:%",))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        db_logger.error(f"pending_remove failed: {e}")
+
+
+def pending_all():
+    """The downloads that were queued (or running) when the daemon last stopped."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        _pending_table(conn)
+        rows = conn.execute('SELECT item FROM pending_downloads ORDER BY added_at').fetchall()
+        conn.close()
+        return [json.loads(r[0]) for r in rows]
+    except Exception as e:
+        db_logger.error(f"pending_all failed: {e}")
+        return []
+
 
 def recent_downloads(limit=100):
     """The newest real downloads (not system events), most recent first."""

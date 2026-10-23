@@ -58,31 +58,13 @@ def set_ignored(model_id: int, ignore: bool) -> None:
     _ignored_path().write_text(json.dumps(sorted(ids)), encoding="utf-8")
 
 
-def _downloaded_since(checked_at) -> set:
-    """(model, version) pairs downloaded after the last check: no longer an update."""
-    try:
-        from backend.database import recent_downloads
-
-        return {
-            (str(r["model_id"]), str(r["model_version_id"]))
-            for r in recent_downloads(500)
-            if r["status"] == "success" and (not checked_at or r["timestamp"] > checked_at)
-        }
-    except Exception:
-        return set()
-
-
 def load() -> dict:
     try:
         data = json.loads(_cache_path().read_text(encoding="utf-8"))
     except Exception:
         data = {"checked_at": None, "items": [], "scanned": 0, "error": None}
     hidden = ignored()
-    got = _downloaded_since(data.get("checked_at"))
-    data["items"] = [
-        i for i in data.get("items", [])
-        if i["model_id"] not in hidden and (str(i["model_id"]), str(i["latest"]["id"])) not in got
-    ]
+    data["items"] = [i for i in data.get("items", []) if i["model_id"] not in hidden]
     data["ignored"] = len(hidden)
     data["running"] = _running
     return data
