@@ -496,14 +496,16 @@ class DownloadDaemon(threading.Thread):
                 total = int(r.headers.get('content-length', 0))
                 downloaded = 0
                 last_progress_sent = 0
-                with open(filepath, 'wb') as f:
+                part = filepath + '.part'
+                with open(part, 'wb') as f:
                     for chunk in r.iter_bytes():
                         if self.cancel_current:
                             ws_manager.broadcast('download_cancelled', {'model_id': item['model_id'], 'filename': item['filename']})
                             send_webhook('download_cancelled', {'model_id': item['model_id'], 'filename': item['filename']})
-                            if os.path.exists(filepath):
+                            f.close()
+                            if os.path.exists(part):
                                 try:
-                                    os.remove(filepath)
+                                    os.remove(part)
                                 except Exception:
                                     pass
                             return False, filepath
@@ -546,9 +548,18 @@ class DownloadDaemon(threading.Thread):
                         'downloaded': downloaded,
                         'total': total
                     })
+            # Complete: only now does it get its real name (and show up in the library).
+            if total and downloaded != total:
+                raise IOError(f"incomplete download: {downloaded} of {total} bytes")
+            os.replace(part, filepath)
             return True, filepath
         except Exception as e:
             self.err_logger.error(f"Exception during download for {item.get('url')}: {e}")
+            try:
+                if os.path.exists(filepath + '.part'):
+                    os.remove(filepath + '.part')
+            except Exception:
+                pass
             return False, filepath
 
     def verify_hash(self, filepath, expected_sha256, model_id=None, model_version_id=None):

@@ -412,7 +412,7 @@ def _pending_key(model_id, model_version_id, filename=None):
 
 def pending_add(item):
     """Remember a queued download (plain fields only)."""
-    keep = ('model_id', 'url', 'filename', 'sha256', 'priority', 'retries', 'model_type', 'model_version_id', 'base_model')
+    keep = ('model_id', 'url', 'filename', 'sha256', 'priority', 'retries', 'model_type', 'model_version_id', 'base_model', 'civitai_info')
     row = {k: item.get(k) for k in keep}
     try:
         conn = sqlite3.connect(DB_PATH)
