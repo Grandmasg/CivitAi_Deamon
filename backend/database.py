@@ -394,6 +394,19 @@ def downloads_per_day_base_model_status():
     conn.close()
     return result
 
+def recent_downloads(limit=100):
+    """The newest real downloads (not system events), most recent first."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            '''SELECT timestamp, model_id, model_version_id, filename, model_type, status, message, file_size, base_model
+               FROM downloads WHERE model_id != 'system' ORDER BY id DESC LIMIT ?''', (int(limit),)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def is_already_downloaded(model_id, model_version_id):
     """
     Returns True als deze combinatie al als 'success' in downloads staat.

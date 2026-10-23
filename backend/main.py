@@ -291,6 +291,13 @@ def sdsage_downloads(user: dict = Depends(get_current_user)):
     }
 
 
+@app.get("/api/sdsage/downloads/history")
+def sdsage_downloads_history(limit: int = 100, user: dict = Depends(get_current_user)):
+    """What was downloaded (or failed) lately, kept across restarts: for 'what have I done'."""
+    from backend.database import recent_downloads
+    return {"items": recent_downloads(max(1, min(limit, 500)))}
+
+
 def civitai_api_key():
     """CIVITAI_API_KEY from the environment, else civitai_api_key from configs/config.json."""
     if os.environ.get('CIVITAI_API_KEY'):
