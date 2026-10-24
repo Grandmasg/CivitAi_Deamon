@@ -486,6 +486,16 @@ async def sdsage_search(request: Request, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=502, detail=f"CivitAI did not answer: {e}")
 
 
+@app.get("/api/sdsage/lookup")
+async def sdsage_lookup_route(hash: str = "", query: str = "", kind: str = "", adult: bool = False, user: dict = Depends(get_current_user)):
+    """A CivitAI version by short (AutoV2) hash, or models by name: for 'what is the model or LoRA this prompt used'."""
+    from backend import sdsage_lookup
+    try:
+        return {"items": await asyncio.to_thread(sdsage_lookup.find, hash, query, kind, adult, civitai_api_key())}
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"CivitAI did not answer: {e}")
+
+
 @app.get("/api/sdsage/model")
 async def sdsage_model(id: int, adult: bool = False, user: dict = Depends(get_current_user)):
     """One CivitAI model with its versions and images, for the model window."""
