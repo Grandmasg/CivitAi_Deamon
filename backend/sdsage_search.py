@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import re
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 import httpx
@@ -176,6 +177,20 @@ def search(params: dict, api_key: str | None, downloaded: set[int], have_models:
             "have_model": m.get("id") in have_models and version.get("id") not in downloaded,
             "commercial": m.get("allowCommercialUse"),
         })
+    # Early Access files cannot be downloaded: found out here, so the page does not offer them.
+    headers = {"User-Agent": "CivitaiDaemon/1.0 (SD.Sage plugin)"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    urls = []
+    for m in found:
+        version = (m.get("modelVersions") or [{}])[0]
+        files = version.get("files") or []
+        primary = next((f for f in files if f.get("primary")), files[0] if files else {})
+        urls.append(primary.get("downloadUrl") or version.get("downloadUrl"))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        why = list(pool.map(lambda u: sdsage.refusal(u, headers), urls))
+    for item, reason in zip(items, why):
+        item["refused"] = reason or ""
     return {"items": items, "next": next_cursor}
 
 

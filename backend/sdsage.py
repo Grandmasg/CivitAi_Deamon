@@ -18,6 +18,7 @@ import hmac
 import json
 import os
 import re
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -186,26 +187,40 @@ def parse_civitai_ref(ref: str) -> tuple[int | None, int | None]:
     return (int(m.group(1)) if m else None), (int(version) if version and version.isdigit() else None)
 
 
-def _check_open(url: str | None, headers: dict) -> None:
-    """Early Access files answer 403 until their date or until paid for with Buzz: say so now, not after a queue of failed retries."""
+_open_cache: dict[str, tuple[float, str | None]] = {}
+
+
+def refusal(url: str | None, headers: dict) -> str | None:
+    """Why CivitAI refuses a download right now, or None when it does not: Early Access files answer 403 until their date or until paid for with Buzz. Remembered for half an hour."""
     if not url:
-        return
+        return None
+    hit = _open_cache.get(url)
+    if hit and time.time() - hit[0] < 1800:
+        return hit[1]
+    why = None
     try:
         with httpx.Client(timeout=15, headers={**headers, "Range": "bytes=0-0"}) as client:
             with client.stream("GET", url) as r:
-                if r.status_code != 403:
-                    return
-                body = r.read().decode("utf-8", "replace")
+                if r.status_code == 403:
+                    try:
+                        info = json.loads(r.read().decode("utf-8", "replace"))
+                    except ValueError:
+                        info = {}
+                    if info.get("error") == "Early Access":
+                        until = (info.get("deadline") or "")[:10]
+                        why = "Early Access on CivitAI" + (f" until {until}" if until else "") + ": it can only be fetched there, with Buzz"
+                    else:
+                        why = "CivitAI refuses this download (403): " + (info.get("message") or "login needed")
     except httpx.HTTPError:
-        return
-    try:
-        info = json.loads(body)
-    except ValueError:
-        info = {}
-    if info.get("error") == "Early Access":
-        until = (info.get("deadline") or "")[:10]
-        raise ValueError("Early Access on CivitAI" + (f" until {until}" if until else "") + ": it can only be fetched there, with Buzz")
-    raise ValueError("CivitAI refuses this download (403): " + (info.get("message") or "login needed"))
+        return None
+    _open_cache[url] = (time.time(), why)
+    return why
+
+
+def _check_open(url: str | None, headers: dict) -> None:
+    why = refusal(url, headers)
+    if why:
+        raise ValueError(why)
 
 
 def resolve_civitai(ref: str, api_key: str | None) -> dict:
