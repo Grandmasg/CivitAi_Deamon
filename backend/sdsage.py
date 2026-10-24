@@ -186,6 +186,28 @@ def parse_civitai_ref(ref: str) -> tuple[int | None, int | None]:
     return (int(m.group(1)) if m else None), (int(version) if version and version.isdigit() else None)
 
 
+def _check_open(url: str | None, headers: dict) -> None:
+    """Early Access files answer 403 until their date or until paid for with Buzz: say so now, not after a queue of failed retries."""
+    if not url:
+        return
+    try:
+        with httpx.Client(timeout=15, headers={**headers, "Range": "bytes=0-0"}) as client:
+            with client.stream("GET", url) as r:
+                if r.status_code != 403:
+                    return
+                body = r.read().decode("utf-8", "replace")
+    except httpx.HTTPError:
+        return
+    try:
+        info = json.loads(body)
+    except ValueError:
+        info = {}
+    if info.get("error") == "Early Access":
+        until = (info.get("deadline") or "")[:10]
+        raise ValueError("Early Access on CivitAI" + (f" until {until}" if until else "") + ": it can only be fetched there, with Buzz")
+    raise ValueError("CivitAI refuses this download (403): " + (info.get("message") or "login needed"))
+
+
 def resolve_civitai(ref: str, api_key: str | None) -> dict:
     """Look up a model version on CivitAI and describe the file to download."""
     model_id, version_id = parse_civitai_ref(ref)
@@ -204,6 +226,7 @@ def resolve_civitai(ref: str, api_key: str | None) -> dict:
         raise ValueError("this version has no files")
     file = next((f for f in files if f.get("primary")), files[0])
     model_info = version.get("model") or {}
+    _check_open(file.get("downloadUrl") or version.get("downloadUrl"), headers)
     return {
         "model_id": version.get("modelId") or model_id,
         "model_version_id": version["id"],
