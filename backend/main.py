@@ -9,7 +9,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from fastapi import Query
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
