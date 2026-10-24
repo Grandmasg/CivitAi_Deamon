@@ -115,7 +115,13 @@ def model(model_id: int, api_key: str | None, adult: bool, downloaded: set[int])
     }
 
 
-def search(params: dict, api_key: str | None, downloaded: set[int], have_models: set[int] = frozenset()) -> dict:
+def _in_folder(file: dict, names: set[str], hashes: set[str]) -> bool:
+    from backend.sdsage_integrity import name_key
+    sha = ((file.get("hashes") or {}).get("SHA256") or "").upper()
+    return bool(file.get("name") and name_key(file["name"]) in names) or bool(sha and sha in hashes)
+
+
+def search(params: dict, api_key: str | None, downloaded: set[int], have_models: set[int] = frozenset(), local_names: set[str] = frozenset(), local_hashes: set[str] = frozenset()) -> dict:
     limit = max(1, min(48, int(params.get("limit") or 24)))
     query = {"limit": limit}
     q = str(params.get("query") or "").strip()
@@ -172,7 +178,8 @@ def search(params: dict, api_key: str | None, downloaded: set[int], have_models:
             "image": _thumb(image.get("url")),
             # Images CivitAI rates above PG-13 are blurred by the page.
             "image_adult": (image.get("nsfwLevel") or 1) > 2,
-            "downloaded": version.get("id") in downloaded,
+            # In the folder: by version in its .civitai.info, or the same file name or hash (a copy without info).
+            "downloaded": version.get("id") in downloaded or _in_folder(primary, local_names, local_hashes),
             # Another version of this model is in the folder.
             "have_model": m.get("id") in have_models and version.get("id") not in downloaded,
             "commercial": m.get("allowCommercialUse"),

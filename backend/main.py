@@ -396,6 +396,17 @@ def sdsage_trash_list(user: dict = Depends(get_current_user)):
     return sdsage_trash.listing(_models_root())
 
 
+@app.get("/api/sdsage/incomplete")
+async def sdsage_incomplete(user: dict = Depends(get_current_user)):
+    """Interrupted downloads (.part files nobody is writing) and cut-off model files, to put in the trash. Admins only."""
+    _admin(user)
+    from backend import sdsage_integrity
+    busy = {i.get("filename") for i in list(daemon_instance.active_downloads)}
+    busy |= {entry[-1].get("filename") for entry in list(daemon_instance.queue.queue) if isinstance(entry, tuple) and isinstance(entry[-1], dict)}
+    items = await asyncio.to_thread(sdsage_integrity.partials, _models_root(), busy)
+    return {"items": items, "bytes": sum(i["bytes"] for i in items)}
+
+
 @app.post("/api/sdsage/trash/{action}")
 async def sdsage_trash_action(action: str, request: Request, user: dict = Depends(get_current_user)):
     """move (models to the trash), restore (back) or purge (delete for good,
@@ -474,6 +485,20 @@ def _downloaded_versions() -> tuple[set, set]:
     )
 
 
+_files_seen: dict = {"at": 0.0, "names": set(), "hashes": set()}
+
+
+def _local_files() -> tuple[set, set]:
+    """Names and hashes of the whole model files in the folder (kept a few minutes)."""
+    import time as _time
+    from pathlib import Path as _Path
+    from backend import sdsage_integrity
+    if sdsage.MODELS_DIR and _time.time() - _files_seen["at"] > 300:
+        _files_seen["names"], _files_seen["hashes"] = sdsage_integrity.local_index(_Path(sdsage.MODELS_DIR))
+        _files_seen["at"] = _time.time()
+    return _files_seen["names"], _files_seen["hashes"]
+
+
 @app.post("/api/sdsage/search")
 async def sdsage_search(request: Request, user: dict = Depends(get_current_user)):
     """Search CivitAI: query, type, base model, sort, period, adult, cursor."""
@@ -481,7 +506,8 @@ async def sdsage_search(request: Request, user: dict = Depends(get_current_user)
     params = await request.json()
     try:
         versions, models = _downloaded_versions()
-        return await asyncio.to_thread(sdsage_search.search, params, civitai_api_key(), versions, models)
+        names, hashes = await asyncio.to_thread(_local_files)
+        return await asyncio.to_thread(sdsage_search.search, params, civitai_api_key(), versions, models, names, hashes)
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"CivitAI did not answer: {e}")
 

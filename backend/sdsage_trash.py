@@ -30,7 +30,7 @@ def _model(root: Path, rel: str, *, in_trash: bool) -> Path:
         top = path.relative_to(root.resolve()).parts[0]
         if top == TRASH or top not in (*TYPES, "vae", "embeddings", "LyCORIS", "controlnet", "ESRGAN", "diffusion_models", "UNET"):
             raise ValueError(f"{rel}: not in a model folder")
-    if path.suffix.lower() not in MODEL_EXTENSIONS or not path.is_file():
+    if not (path.suffix.lower() in MODEL_EXTENSIONS or path.name.lower().endswith(".part")) or not path.is_file():
         raise ValueError(f"{rel}: not a model file")
     return path
 
@@ -96,7 +96,7 @@ def listing(root: Path) -> dict:
     items = []
     if trash.is_dir():
         for path in sorted(trash.rglob("*")):
-            if not path.is_file() or path.suffix.lower() not in MODEL_EXTENSIONS:
+            if not path.is_file() or not (path.suffix.lower() in MODEL_EXTENSIONS or path.name.lower().endswith(".part")):
                 continue
             files = [path, *sidecars(path)]
             items.append({
