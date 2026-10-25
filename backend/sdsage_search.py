@@ -114,6 +114,8 @@ def model(model_id: int, api_key: str | None, adult: bool, downloaded: set[int])
     ask = [v for v in versions if not v["refused"] and not v["downloaded"] and v["_url"]]
     if ask:
         headers = {"User-Agent": "CivitaiDaemon/1.0 (SD.Sage plugin)"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         with ThreadPoolExecutor(max_workers=8) as pool:
             for v, why in zip(ask, pool.map(lambda x: sdsage.refusal(x["_url"], headers), ask)):
                 v["refused"] = why or ""
