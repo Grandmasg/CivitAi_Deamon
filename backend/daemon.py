@@ -117,6 +117,7 @@ class DownloadDaemon(threading.Thread):
         self.running = True
         self.paused = False
         self.cancel_current = False
+        self.fail_reason = None
         self.logger = daemon_logger
         self.err_logger = daemon_logger
         # self._logged_downloads = set()  # Suppress duplicate log_download calls per (model_id, filename, status) -- redundant, suppressie nu via database
@@ -302,6 +303,7 @@ class DownloadDaemon(threading.Thread):
                 try:
                     self.logger.info(f"Attempt {attempt+1}/{self.max_retries} for {item['filename']}")
                     self.cancel_current = False
+                    self.fail_reason = None
                     t0 = time.time()
                     success, filepath = self._download_file(item)
                     t1 = time.time()
@@ -405,13 +407,13 @@ class DownloadDaemon(threading.Thread):
                             item.get('model_version_id'),
                             item['filename'],
                             'failed',
-                            message='Download failed',
+                            message=self.fail_reason or 'Download failed',
                             model_type=item.get('model_type'),
                             file_size=file_size,
                             download_time=download_time,
                             base_model=item.get('base_model')
                         )
-                        raise Exception('Download failed')
+                        raise Exception(self.fail_reason or 'Download failed')
                 except Exception as e:
                     import traceback
                     tb = traceback.format_exc()
@@ -427,7 +429,10 @@ class DownloadDaemon(threading.Thread):
                             self.logger.info(f"Removed incomplete file: {filepath}")
                         except Exception as cleanup_err:
                             self.err_logger.warning(f"Failed to remove incomplete file {filepath}: {cleanup_err}")
-                    item['retries'] += 1
+                    if self.fail_reason:
+                        item['retries'] = self.max_retries  # asking again gets the same answer
+                    else:
+                        item['retries'] += 1
                     if item['retries'] < self.max_retries:
                         self.logger.warning(f"Retrying {item['filename']} (retry {item['retries']}/{self.max_retries}) after 2s...")
                         time.sleep(2)
@@ -448,6 +453,21 @@ class DownloadDaemon(threading.Thread):
             # Verwijder uit actieve downloads
             if item in self.active_downloads:
                 self.active_downloads.remove(item)
+
+    @staticmethod
+    def _refusal(status, body):
+        """Why CivitAI refused, in a short sentence, when retrying cannot help (else None)."""
+        try:
+            data = json.loads(body)
+        except ValueError:
+            data = {}
+        text = data.get('message') or ''
+        if data.get('error') == 'Early Access':
+            until = (data.get('deadline') or '')[:10]
+            return 'Early Access: costs Buzz on CivitAI' + (f', free to download from {until}' if until else '')
+        if status in (401, 402, 403) and text:
+            return text
+        return None
 
     def _download_file(self, item):
         """Download logic, returns (True, filepath) on success, (False, filepath) on failure/cancel."""
@@ -492,6 +512,7 @@ class DownloadDaemon(threading.Thread):
                             redirects.append(f"{resp.status_code} -> {resp.headers.get('location', '')}")
                     redirect_info = f" Redirect chain: {' | '.join(redirects)}" if redirects else ''
                     self.err_logger.error(f"HTTP error {r.status_code} for {item['url']}: {body}{redirect_info}")
+                    self.fail_reason = self._refusal(r.status_code, body)
                     return False, filepath
                 total = int(r.headers.get('content-length', 0))
                 downloaded = 0

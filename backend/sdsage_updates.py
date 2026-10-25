@@ -178,6 +178,7 @@ def compare(local: list[dict], remote: dict[int, dict]) -> list[dict]:
                     "size_bytes": int((primary.get("sizeKB") or 0) * 1024) or None,
                     "downloads": (latest.get("stats") or {}).get("downloadCount"),
                     "trained_words": (latest.get("trainedWords") or [])[:10],
+                    "early_access_ends": latest.get("earlyAccessEndsAt") or (latest.get("paidAccess") or {}).get("endsAt"),
                 },
                 "kind": "update" if same else "variant",
                 "newer_count": len(newer),
