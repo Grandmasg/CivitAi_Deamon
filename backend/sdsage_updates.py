@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -189,6 +190,19 @@ def compare(local: list[dict], remote: dict[int, dict]) -> list[dict]:
     return items
 
 
+def mark_refused(items: list[dict], headers: dict) -> None:
+    """Ask CivitAI, for each new version, whether it can be downloaded at all (the model list does not say):
+    generation-only, Early Access with Buzz, login. The page then shows why instead of a button that fails.
+    Answers are remembered for half an hour, so a check costs one small request per version."""
+    if not items:
+        return
+    urls = [f"https://civitai.com/api/download/models/{i['latest']['id']}" for i in items]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        why = list(pool.map(lambda u: sdsage.refusal(u, headers), urls))
+    for item, reason in zip(items, why):
+        item["latest"]["refused"] = reason or ""
+
+
 def check(api_key: str | None) -> dict:
     """Run one check now (blocking) and store the result."""
     global _running
@@ -217,6 +231,7 @@ def check(api_key: str | None) -> dict:
                 time.sleep(0.5)  # be gentle with CivitAI
         result["items"] = compare(local, remote)
         result["scanned"] = len(local)
+        mark_refused(result["items"], headers)
     except Exception as e:
         result["error"] = str(e)
     finally:
