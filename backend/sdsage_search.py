@@ -145,6 +145,30 @@ def _in_folder(file: dict, names: set[str], hashes: set[str]) -> bool:
     return bool(file.get("name") and name_key(file["name"]) in names) or bool(sha and sha in hashes)
 
 
+_bases_cache: tuple[float, dict] | None = None
+
+
+def bases() -> dict:
+    """CivitAI's own list of base models: {"active": [...], "all": [...]}. Fetched from /enums and kept for six
+    hours; when CivitAI does not answer, the last list (or a short built-in one) is used."""
+    global _bases_cache
+    if _bases_cache and time.time() - _bases_cache[0] < 6 * 3600:
+        return _bases_cache[1]
+    try:
+        with _client(None) as client:
+            data = client.get(f"{sdsage.CIVITAI_API}/enums").raise_for_status().json()
+        found = {"active": list(data.get("ActiveBaseModel") or []), "all": list(data.get("BaseModel") or [])}
+        if found["active"]:
+            _bases_cache = (time.time(), found)
+            return found
+    except (httpx.HTTPError, ValueError):
+        pass
+    if _bases_cache:
+        return _bases_cache[1]
+    short = ["SD 1.5", "SDXL 1.0", "Pony", "Illustrious", "NoobAI", "Flux.1 D", "Flux.1 S", "ZImageTurbo", "Anima", "Qwen"]
+    return {"active": short, "all": short}
+
+
 def search(params: dict, api_key: str | None, downloaded: set[int], have_models: set[int] = frozenset(), local_names: set[str] = frozenset(), local_hashes: set[str] = frozenset()) -> dict:
     limit = max(1, min(48, int(params.get("limit") or 24)))
     query = {"limit": limit}

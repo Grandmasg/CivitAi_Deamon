@@ -82,8 +82,12 @@ def canonical_base(name: str | None) -> str | None:
         return "Hunyuan"
     if has("krea 2") or has("krea2"):
         return "Krea 2"
+    if has("flux.3") or has("flux 3"):
+        return "Flux.3"
     if has("flux.2") or has("flux2") or has("klein"):
         return "Flux.2"
+    if has("kontext"):
+        return "Flux.1 Kontext"
     if has("flux") and has("krea"):
         return "Flux.1 Krea"
     if has("flux") and (has("schnell") or n.endswith(" s")):
@@ -96,6 +100,24 @@ def canonical_base(name: str | None) -> str | None:
         return "Chroma"
     if has("hidream"):
         return "HiDream"
+    if "anima" in words:
+        return "Anima"
+    if has("auraflow"):
+        return "AuraFlow"
+    if has("boogu"):
+        return "Boogu"
+    if has("moss"):
+        return "MOSS Image"
+    if has("kolors"):
+        return "Kolors"
+    if has("mochi"):
+        return "Mochi"
+    if has("pixart"):
+        return "PixArt"
+    if has("cogvideo"):
+        return "CogVideoX"
+    if has("ernie"):
+        return "Ernie"
     if has("cascade"):
         return "Stable Cascade"
     if has("pony"):

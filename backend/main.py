@@ -499,6 +499,13 @@ def _local_files() -> tuple[set, set]:
     return _files_seen["names"], _files_seen["hashes"]
 
 
+@app.get("/api/sdsage/bases")
+async def sdsage_bases(user: dict = Depends(get_current_user)):
+    """The base models CivitAI knows, for the search filter."""
+    from backend import sdsage_search
+    return await asyncio.to_thread(sdsage_search.bases)
+
+
 @app.post("/api/sdsage/search")
 async def sdsage_search(request: Request, user: dict = Depends(get_current_user)):
     """Search CivitAI: query, type, base model, sort, period, adult, cursor."""
