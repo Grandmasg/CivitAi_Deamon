@@ -201,7 +201,7 @@ def refusal(url: str | None, headers: dict) -> str | None:
     try:
         with httpx.Client(timeout=15, headers={**headers, "Range": "bytes=0-0"}) as client:
             with client.stream("GET", url) as r:
-                if r.status_code == 403:
+                if r.status_code in (401, 403):
                     try:
                         info = json.loads(r.read().decode("utf-8", "replace"))
                     except ValueError:
@@ -210,7 +210,7 @@ def refusal(url: str | None, headers: dict) -> str | None:
                         until = (info.get("deadline") or "")[:10]
                         why = "Early Access on CivitAI" + (f" until {until}" if until else "") + ": it can only be fetched there, with Buzz"
                     else:
-                        why = "CivitAI refuses this download (403): " + (info.get("message") or "login needed")
+                        why = f"CivitAI refuses this download ({r.status_code}): " + (info.get("message") or "login needed")
     except httpx.HTTPError:
         return None
     _open_cache[url] = (time.time(), why)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
@@ -56,6 +57,16 @@ def html_text(text: str | None, limit: int = 8000) -> str:
     return text[:limit] + ("…" if len(text) > limit else "")
 
 
+def _refused(v: dict) -> str:
+    """Why this version cannot be downloaded, from what CivitAI lists (no extra request), or empty."""
+    if (v.get("usageControl") or "Download") != "Download":
+        return "The creator set this model to generation-only on CivitAI: it cannot be downloaded"
+    ends = (v.get("paidAccess") or {}).get("endsAt") or v.get("earlyAccessEndsAt")
+    if ends and ends > time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()):
+        return f"Early Access on CivitAI until {ends[:10]}: it can only be fetched there, with Buzz"
+    return ""
+
+
 def model(model_id: int, api_key: str | None, adult: bool, downloaded: set[int]) -> dict:
     """One model with its versions and their images, for SD.Sage's model window.
     Without adult access, models CivitAI marks adult are refused and images
@@ -96,7 +107,18 @@ def model(model_id: int, api_key: str | None, adult: bool, downloaded: set[int])
             "notes": html_text(v.get("description"), 3000),
             "images": images,
             "downloaded": v.get("id") in downloaded,
+            "refused": _refused(v),
+            "_url": primary.get("downloadUrl") or v.get("downloadUrl"),
         })
+    # The model list does not say who disabled downloads: ask CivitAI (remembered for half an hour).
+    ask = [v for v in versions if not v["refused"] and not v["downloaded"] and v["_url"]]
+    if ask:
+        headers = {"User-Agent": "CivitaiDaemon/1.0 (SD.Sage plugin)"}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for v, why in zip(ask, pool.map(lambda x: sdsage.refusal(x["_url"], headers), ask)):
+                v["refused"] = why or ""
+    for v in versions:
+        v.pop("_url", None)
     return {
         "id": m.get("id"),
         "name": m.get("name"),
