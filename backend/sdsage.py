@@ -177,8 +177,9 @@ def parse_civitai_ref(ref: str) -> tuple[int | None, int | None]:
     if ref.isdigit():
         return int(ref), None
     url = urlparse(ref)
-    if url.netloc and not url.netloc.endswith("civitai.com"):
-        raise ValueError("only civitai.com links are supported")
+    # civitai.red is CivitAI's second domain (same ids, same files); exact hosts only.
+    if url.netloc and url.netloc.lower().removeprefix("www.") not in ("civitai.com", "civitai.red"):
+        raise ValueError("only civitai.com and civitai.red links are supported")
     version = parse_qs(url.query).get("modelVersionId", [None])[0]
     m = re.search(r"/models/(\d+)", url.path)
     d = re.search(r"/api/download/models/(\d+)", url.path)
